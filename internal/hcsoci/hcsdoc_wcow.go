@@ -384,11 +384,13 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 	}
 
 	if specDumpPath, ok := coi.Spec.Annotations[annotations.ContainerProcessDumpLocation]; ok {
-		// If a process dump path was specified at pod creation time for a hypervisor isolated pod, then
+		// If a process dump path was specified at pod creation time, then
 		// use this value. If one was specified on the container creation document then override with this
 		// instead. Unlike Linux, Windows containers can set the dump path on a per container basis.
 		dumpPath = specDumpPath
 	}
+
+	fmt.Println("DumpPath:", dumpPath)
 
 	// Servercore images block on signaling and wait until the target process
 	// is terminated to return to its caller. By default, servercore waits for
@@ -415,7 +417,43 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 		},
 	}
 
-	if dumpPath != "" {
+	// LocalDumps reg key enables collection of user-mode dumps and stores them locally.
+	// DumpFolder specifies the write location for dumps
+	// DumpCount specifies the max dump files in the DumpFolder
+	// DumpType specifies if the dump should be a mini dump/full dump or custom dump
+	// If process dump path was not specified at pod creation time, the default
+	// dump path is set to C:\CrashDumps
+	if dumpPath == "" {
+		registryAdd = append(registryAdd, []hcsschema.RegistryValue{
+			{
+				Key: &hcsschema.RegistryKey{
+					Hive: "Software",
+					Name: "Microsoft\\Windows\\Windows Error Reporting\\LocalDumps",
+				},
+				Name:        "DumpFolder",
+				StringValue: "C:\\CrashDumps",
+				Type_:       "String",
+			},
+			{
+				Key: &hcsschema.RegistryKey{
+					Hive: "Software",
+					Name: "Microsoft\\Windows\\Windows Error Reporting\\LocalDumps",
+				},
+				Name:       "DumpCount",
+				DWordValue: 10,
+				Type_:      "DWord",
+			},
+			{
+				Key: &hcsschema.RegistryKey{
+					Hive: "Software",
+					Name: "Microsoft\\Windows\\Windows Error Reporting\\LocalDumps",
+				},
+				Name:       "DumpType",
+				DWordValue: 2,
+				Type_:      "DWord",
+			},
+		}...)
+	} else {
 		dumpType, err := parseDumpType(coi.Spec.Annotations)
 		if err != nil {
 			return nil, nil, err
@@ -432,6 +470,15 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 				Name:        "DumpFolder",
 				StringValue: dumpPath,
 				Type_:       "String",
+			},
+			{
+				Key: &hcsschema.RegistryKey{
+					Hive: "Software",
+					Name: "Microsoft\\Windows\\Windows Error Reporting\\LocalDumps",
+				},
+				Name:       "DumpCount",
+				DWordValue: 10,
+				Type_:      "DWord",
 			},
 			{
 				Key: &hcsschema.RegistryKey{
