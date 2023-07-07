@@ -151,6 +151,7 @@ func createPod(ctx context.Context, events publisher, req *task.CreateTaskReques
 		}
 
 	} else if oci.IsJobContainer(s) {
+		log.G(ctx).Debug("!!!! host process containers!!")
 		// If we're making a job container fake a task (i.e reuse the wcowPodSandbox logic)
 		p.sandboxTask = newWcowPodSandboxTask(ctx, events, req.ID, req.Bundle, parent, "")
 		if err := events.publishEvent(
@@ -207,14 +208,18 @@ func createPod(ctx context.Context, events publisher, req *task.CreateTaskReques
 	// isolated. Process isolated WCOW gets the namespace endpoints
 	// automatically.
 	nsid := ""
-	if isWCOW && parent != nil {
-		if s.Windows != nil && s.Windows.Network != nil {
-			nsid = s.Windows.Network.NetworkNamespace
-		}
+	log.G(ctx).Debug("pod isWCOW: %v, parent: %v, hpc: %v", isWCOW, parent)
+	if isWCOW {
+		//&& parent != nil {
+		if parent != nil {
+			if s.Windows != nil && s.Windows.Network != nil {
+				nsid = s.Windows.Network.NetworkNamespace
+			}
 
-		if nsid != "" {
-			if err := parent.ConfigureNetworking(ctx, nsid); err != nil {
-				return nil, errors.Wrapf(err, "failed to setup networking for pod %q", req.ID)
+			if nsid != "" {
+				if err := parent.ConfigureNetworking(ctx, nsid); err != nil {
+					return nil, errors.Wrapf(err, "failed to setup networking for pod %q", req.ID)
+				}
 			}
 		}
 		p.sandboxTask = newWcowPodSandboxTask(ctx, events, req.ID, req.Bundle, parent, nsid)
