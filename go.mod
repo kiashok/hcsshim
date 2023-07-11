@@ -10,10 +10,9 @@ require (
 	github.com/containerd/console v1.0.3
 	github.com/containerd/containerd v1.6.21
 	github.com/containerd/go-runc v1.0.0
-	github.com/containerd/ttrpc v1.1.2
+	github.com/containerd/ttrpc v1.2.2
 	github.com/containerd/typeurl v1.0.2
 	github.com/gogo/protobuf v1.3.2
-	github.com/golang/mock v1.6.0
 	github.com/google/go-cmp v0.5.9
 	github.com/google/go-containerregistry v0.15.2
 	github.com/lestrrat-go/jwx v1.2.26
@@ -31,6 +30,7 @@ require (
 	github.com/vishvananda/netns v0.0.4
 	go.etcd.io/bbolt v1.3.7
 	go.opencensus.io v0.24.0
+	go.uber.org/mock v0.2.0
 	golang.org/x/sync v0.3.0
 	golang.org/x/sys v0.9.0
 	google.golang.org/grpc v1.47.0
