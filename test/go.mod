@@ -28,6 +28,8 @@ require (
 )
 
 require (
+	github.com/Microsoft/cosesign1go v0.0.1 // indirect
+	github.com/Microsoft/didx509go v0.0.2 // indirect
 	github.com/OneOfOne/xxhash v1.2.8 // indirect
 	github.com/agnivade/levenshtein v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
