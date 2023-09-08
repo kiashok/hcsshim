@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 
+	"github.com/Microsoft/go-winio/pkg/fs"
 	runhcsopts "github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
 	"github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/stats"
 	"github.com/Microsoft/hcsshim/internal/cmd"
@@ -38,10 +39,12 @@ import (
 	"github.com/Microsoft/hcsshim/internal/protocol/guestrequest"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
 	"github.com/Microsoft/hcsshim/internal/resources"
+	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/shimdiag"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/Microsoft/hcsshim/pkg/annotations"
+	"github.com/Microsoft/hcsshim/pkg/ctrdtaskapi"
 )
 
 func newHcsStandaloneTask(ctx context.Context, events publisher, req *task.CreateTaskRequest, s *specs.Spec) (shimTask, error) {
@@ -835,7 +838,15 @@ func (ht *hcsTask) Update(ctx context.Context, req *task.UpdateTaskRequest) erro
 
 func (ht *hcsTask) updateTaskContainerResources(ctx context.Context, data interface{}, annotations map[string]string) error {
 	if ht.isWCOW {
-		return ht.updateWCOWResources(ctx, data, annotations)
+		switch data.(type) {
+		case *specs.WindowsResources:
+			return ht.updateWCOWResources(ctx, data, annotations)
+		case *ctrdtaskapi.ContainerMount:
+			// Adding mount to a running container is currently only supported for windows containers
+			return ht.updateWCOWContainerMount(ctx, data, annotations)
+		default:
+			return errNotSupportedResourcesRequest
+		}
 	}
 
 	return ht.updateLCOWResources(ctx, data, annotations)
@@ -933,4 +944,96 @@ func (ht *hcsTask) ProcessorInfo(ctx context.Context) (*processorInfo, error) {
 	return &processorInfo{
 		count: ht.host.ProcessorCount(),
 	}, nil
+}
+
+// Add mount as vSMB share to the UVM at the given destination path
+func (ht *hcsTask) addMountToUVM(ctx context.Context, src string, dst string, isRO bool) (string, error) {
+	options := ht.host.DefaultVSMBOptions(isRO)
+	vsmbShare, err := ht.host.AddVSMB(ctx, src, options)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to add mount as vSMB share to UVM")
+	}
+	defer func() {
+		if err != nil {
+			_ = vsmbShare.Release(ctx)
+		}
+	}()
+
+	sharePath, err := ht.host.GetVSMBUvmPath(ctx, src, isRO)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to get vsmb path")
+	}
+	return sharePath, nil
+}
+
+func (ht *hcsTask) requestAddContainerMount(ctx context.Context, resourcePath string, settings interface{}) error {
+	modification := &hcsschema.ModifySettingRequest{
+		ResourcePath: resourcePath,
+		RequestType:  guestrequest.RequestTypeAdd,
+		Settings:     settings,
+	}
+	return ht.c.Modify(ctx, modification)
+}
+
+func isMountTypeSupported(mountType string) bool {
+	// currently we only support mounting of host volumes/directories
+	return mountType == ""
+}
+
+func (ht *hcsTask) updateWCOWContainerMount(ctx context.Context, data interface{}, annotations map[string]string) error {
+	// Hcsschema v2 should be supported
+	if osversion.Build() >= osversion.RS5 {
+		if sv := schemaversion.DetermineSchemaVersion(nil); !schemaversion.IsV21(sv) {
+			return fmt.Errorf("hcsschema v2 unsupported")
+		}
+	}
+	resources, ok := data.(*ctrdtaskapi.ContainerMount)
+	if !ok {
+		return errors.New("resources must be of type *ctrdtaskapi.ContainerMount when adding mount to a running windows container")
+	}
+	if resources.HostPath == "" || resources.ContainerPath == "" {
+		return fmt.Errorf("invalid OCI spec - a mount must have both host and container path set")
+	}
+
+	// Check for valid mount type
+	if !isMountTypeSupported(resources.Type) {
+		return fmt.Errorf("invalid mount type - currently only host volumes/directories can be mounted to running containers")
+	}
+
+	if ht.host == nil {
+		// HCS has a bug where it does not correctly resolve file (not dir) paths
+		// if the path includes a symlink. Therefore, we resolve the path here before
+		// passing it in. The issue does not occur with VSMB, so don't need to worry
+		// about the isolated case.
+		hostPath, err := fs.ResolvePath(resources.HostPath)
+		if err != nil {
+			return errors.Wrapf(err, "failed to resolve path for hostPath %s", resources.HostPath)
+		}
+
+		// process isolated windows container
+		settings := hcsschema.MappedDirectory{
+			HostPath:      hostPath,
+			ContainerPath: resources.ContainerPath,
+			ReadOnly:      resources.ReadOnly,
+		}
+		if err := ht.requestAddContainerMount(ctx, resourcepaths.SiloMappedDirectoryResourcePath, settings); err != nil {
+			return errors.Wrapf(err, "failed to add mount to process isolated container")
+		}
+	} else {
+		// if it is a mount request for a running hyperV WCOW container, we should first mount volume to the
+		// UVM as a VSMB share and then mount to the running container using the src path as seen by the UVM
+		guestPath, err := ht.addMountToUVM(ctx, resources.HostPath, resources.ContainerPath, resources.ReadOnly)
+		if err != nil {
+			return err
+		}
+		settings := hcsschema.MappedDirectory{
+			HostPath:      guestPath,
+			ContainerPath: resources.ContainerPath,
+			ReadOnly:      resources.ReadOnly,
+		}
+		if err := ht.requestAddContainerMount(ctx, resourcepaths.SiloMappedDirectoryResourcePath, settings); err != nil {
+			return errors.Wrapf(err, "failed to add mount to hyperV container")
+		}
+	}
+	return nil
 }
