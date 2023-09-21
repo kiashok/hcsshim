@@ -854,13 +854,6 @@ func (ht *hcsTask) Update(ctx context.Context, req *task.UpdateTaskRequest) erro
 		return err
 	}
 
-	log.G(ctx).Debug("!! hcstask.Update, ht.ownsHost %v, ht.host %v", ht.ownsHost, ht.host)
-	log.G(ctx).Debug("!! hcstask.Update, annotations: %v", req.Annotations)
-	//ht.ownsHost &&
-	//			gcsDocument = &hcsschema.HostedSystem{
-	//	SchemaVersion: schemaversion.SchemaV21(),
-	//	Container:     v2,
-	//}
 	if ht.ownsHost && ht.host != nil {
 		return ht.host.Update(ctx, resources, req.Annotations)
 	}
@@ -927,36 +920,6 @@ func (ht *hcsTask) updateWCOWResources(ctx context.Context, data interface{}, an
 		}
 	}
 	if annotations["add-mount"] != "" {
-		/*
-			mountPaths := strings.Split(annotations["mount"], "::")
-			// make sure there is host and container path
-			if len(mountPaths) != 2 {
-				return fmt.Errorf("host and container path not specified")
-			}
-
-			log.G(ctx).Debug("mountPaths[0] %v mountPaths[1] %v", mountPaths[0], mountPaths[1])
-			var settings hcsschema.MappedDirectory
-			//	if ht.host == nil {
-			settings = hcsschema.MappedDirectory{
-				HostPath:      mountPaths[0],
-				ContainerPath: mountPaths[1],
-				ReadOnly:      true,
-			}
-			if err := ht.requestAddContainerMount(ctx, resourcepaths.SiloMappedDirectoryResourcePath, settings); err != nil {
-				return err
-			}
-			//}
-			else {
-				settings = hcsschema.MappedDirectory{
-					HostPath:      mountPaths[0],
-					ContainerPath: mountPaths[1],
-					ReadOnly:      true,
-				}
-				if err := ht.requestAddContainerMount(ctx, resourcepaths.VSMBShareResourcePath, settings); err != nil {
-					return err
-				}
-			}
-		*/
 		newMountPaths := strings.Split(annotations["add-mount"], ",")
 		if len(newMountPaths) < 2 {
 			return fmt.Errorf("mount path not specified properly")
@@ -977,8 +940,6 @@ func (ht *hcsTask) updateWCOWResources(ctx context.Context, data interface{}, an
 			return fmt.Errorf("invalid OCI spec - a mount must have both source and a destination: src:%v dst:%v", src, dst)
 		}
 
-		//	var settings hcsschema.MappedDirectory
-		// if process isolated
 		if ht.host == nil {
 			settings := hcsschema.MappedDirectory{
 				HostPath:      src,
@@ -986,10 +947,11 @@ func (ht *hcsTask) updateWCOWResources(ctx context.Context, data interface{}, an
 				ReadOnly:      isRO,
 			}
 			if err := ht.requestAddContainerMount(ctx, resourcepaths.SiloMappedDirectoryResourcePath, settings); err != nil {
-				return fmt.Errorf("Failed to add mount to running container with err: %v", err)
+				return fmt.Errorf("failed to add mount to running process isolated container with err: %v", err)
 			}
-		} else { // TODO: else case
-			//
+		} else {
+			// if its mount request to a running hyperV WCOW container, then we have to first mount to UVM as a VSMB share
+			// and then mount to the running container using the src path as seen by the UVM
 			guestPath, err := ht.setupNewMount(ctx, src, dst, isRO)
 			if err != nil {
 				return err
@@ -999,13 +961,19 @@ func (ht *hcsTask) updateWCOWResources(ctx context.Context, data interface{}, an
 				ContainerPath: dst,
 				ReadOnly:      isRO,
 			}
-			//guestRequest := guestrequest.ModificationRequest
-			modification := &hcsschema.ModifySettingRequest{
-				ResourcePath: resourcepaths.SiloMappedDirectoryResourcePath,
-				RequestType:  guestrequest.RequestTypeAdd,
-				Settings:     settings,
+			if err := ht.requestAddContainerMount(ctx, resourcepaths.SiloMappedDirectoryResourcePath, settings); err != nil {
+				return fmt.Errorf("failed to add mount to running hyperV container with err: %v", err)
 			}
-			return ht.c.Modify(ctx, modification)
+			/*
+				//guestRequest := guestrequest.ModificationRequest
+				modification := &hcsschema.ModifySettingRequest{
+					ResourcePath: resourcepaths.SiloMappedDirectoryResourcePath,
+					RequestType:  guestrequest.RequestTypeAdd,
+					Settings:     settings,
+				}
+
+				return ht.c.Modify(ctx, modification)
+			*/
 		}
 	}
 	return nil
@@ -1060,13 +1028,10 @@ func (ht *hcsTask) updateLCOWResources(ctx context.Context, data interface{}, an
 }
 
 func (ht *hcsTask) requestAddContainerMount(ctx context.Context, resourcePath string, settings interface{}) error {
-	var modification interface{}
-	if ht.host == nil {
-		modification = &hcsschema.ModifySettingRequest{
-			ResourcePath: resourcePath,
-			RequestType:  guestrequest.RequestTypeAdd,
-			Settings:     settings,
-		}
+	modification := &hcsschema.ModifySettingRequest{
+		ResourcePath: resourcePath,
+		RequestType:  guestrequest.RequestTypeAdd,
+		Settings:     settings,
 	}
 	return ht.c.Modify(ctx, modification)
 }
