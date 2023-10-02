@@ -4,6 +4,7 @@ package hcn
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"syscall"
 
@@ -57,11 +58,12 @@ var (
 
 // HostComputeNamespace represents a namespace (AKA compartment) in
 type HostComputeNamespace struct {
-	Id            string              `json:"ID,omitempty"`
-	NamespaceId   uint32              `json:",omitempty"`
-	Type          NamespaceType       `json:",omitempty"` // Host, HostDefault, Guest, GuestDefault
-	Resources     []NamespaceResource `json:",omitempty"`
-	SchemaVersion SchemaVersion       `json:",omitempty"`
+	Id                                       string              `json:"ID,omitempty"`
+	NamespaceId                              uint32              `json:",omitempty"`
+	Type                                     NamespaceType       `json:",omitempty"` // Host, HostDefault, Guest, GuestDefault
+	Resources                                []NamespaceResource `json:",omitempty"`
+	SchemaVersion                            SchemaVersion       `json:",omitempty"`
+	IsBindingCompartmentLifecycleToNamespace bool
 }
 
 // ModifyNamespaceSettingRequest is the structure used to send request to modify a namespace.
@@ -136,9 +138,19 @@ func createNamespace(settings string) (*HostComputeNamespace, error) {
 		namespaceHandle  hcnNamespace
 		resultBuffer     *uint16
 		propertiesBuffer *uint16
+		tempHcnNamespace HostComputeNamespace
 	)
+	if err := json.Unmarshal([]byte(settings), &tempHcnNamespace); err != nil {
+		return nil, fmt.Errorf("Error unmarshalling hcn namespace")
+	}
+	tempHcnNamespace.IsBindingCompartmentLifecycleToNamespace = true
+	jsonString, err := json.Marshal(tempHcnNamespace)
+	if err != nil {
+		return nil, err
+	}
+
 	namespaceGUID := guid.GUID{}
-	hr := hcnCreateNamespace(&namespaceGUID, settings, &namespaceHandle, &resultBuffer)
+	hr := hcnCreateNamespace(&namespaceGUID, string(jsonString), &namespaceHandle, &resultBuffer)
 	if err := checkForErrors("hcnCreateNamespace", hr, resultBuffer); err != nil {
 		return nil, err
 	}
