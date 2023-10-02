@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim"
 	icni "github.com/Microsoft/hcsshim/internal/cni"
 	"github.com/Microsoft/hcsshim/internal/interop"
 	"github.com/Microsoft/hcsshim/internal/regstate"
@@ -62,6 +63,7 @@ type HostComputeNamespace struct {
 	Type          NamespaceType       `json:",omitempty"` // Host, HostDefault, Guest, GuestDefault
 	Resources     []NamespaceResource `json:",omitempty"`
 	SchemaVersion SchemaVersion       `json:",omitempty"`
+	ReadyOnCreate bool                `json:",omitempty"`
 }
 
 // ModifyNamespaceSettingRequest is the structure used to send request to modify a namespace.
@@ -308,10 +310,25 @@ func GetNamespaceContainerIds(namespaceID string) ([]string, error) {
 
 // NewNamespace creates a new Namespace object
 func NewNamespace(nsType NamespaceType) *HostComputeNamespace {
-	return &HostComputeNamespace{
+	hostComputeNamespace := HostComputeNamespace{
 		Type:          nsType,
 		SchemaVersion: V2SchemaVersion(),
 	}
+	// Set ReadyOnCreate to true if HNS version >= 15.2 or 13.4 .
+	// These versions of HNS change how network compartments are
+	// initialized and depend on ReadyOnCreate field for the same.
+	// These changes on HNS side were mostly made to support removal
+	// of pause containers for windows process isolated scenarios.
+	hnsGlobals, err := hcsshim.GetHNSGlobals()
+	if err != nil {
+		if (hnsGlobals.Version.Major > 15) ||
+			(hnsGlobals.Version.Major == 15 && hnsGlobals.Version.Minor >= 2) ||
+			(hnsGlobals.Version.Major == 13 && hnsGlobals.Version.Minor >= 4) {
+			hostComputeNamespace.ReadyOnCreate = true
+		}
+	}
+
+	return &hostComputeNamespace
 }
 
 // Create Namespace.
