@@ -950,7 +950,7 @@ func TestAddEndpoint_NoError(t *testing.T) {
 	// the nominal AddEndpoint functionality, and when specifying attach to host
 	// the DefaultHost namespace is retrieved below.
 	namespace := hcn.NewNamespace(hcn.NamespaceTypeHost)
-	namespace, err = namespace.Create()
+	namespace, err = namespace.Create(nil)
 	if err != nil {
 		t.Fatalf("failed to create test namespace with %v", err)
 	}
@@ -961,7 +961,7 @@ func TestAddEndpoint_NoError(t *testing.T) {
 	hostDefaultNSID, err := getHostDefaultNamespace()
 	if err != nil {
 		ns := hcn.NewNamespace(hcn.NamespaceTypeHostDefault)
-		ns, err = ns.Create()
+		ns, err = ns.Create(nil)
 		if err != nil {
 			t.Fatalf("failed to create host-default test namespace: %v", err)
 		}
@@ -1062,7 +1062,7 @@ func TestAddEndpoint_Error_EmptyEndpointName(t *testing.T) {
 
 	// create test network namespace
 	namespace := hcn.NewNamespace(hcn.NamespaceTypeHostDefault)
-	namespace, err = namespace.Create()
+	namespace, err = namespace.Create(nil)
 	if err != nil {
 		t.Fatalf("failed to create test namespace with %v", err)
 	}
@@ -1096,7 +1096,7 @@ func TestAddEndpoint_Error_NoEndpoint(t *testing.T) {
 
 	// create test network namespace
 	namespace := hcn.NewNamespace(hcn.NamespaceTypeHostDefault)
-	namespace, err = namespace.Create()
+	namespace, err = namespace.Create(nil)
 	if err != nil {
 		t.Fatalf("failed to create test namespace with %v", err)
 	}

@@ -21,7 +21,8 @@ func createNetworkNamespace(ctx context.Context, coi *createOptionsInternal, r *
 		l.Debug(op + " - End")
 	}()
 
-	ns, err := hcn.NewNamespace("").Create()
+	annotations := coi.Spec.Annotations
+	ns, err := hcn.NewNamespace("").Create(annotations)
 	if err != nil {
 		return err
 	}

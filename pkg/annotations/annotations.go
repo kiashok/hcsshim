@@ -294,6 +294,10 @@ const (
 	// DumpDirectoryPath provides a path to the directory in which dumps for a UVM will be collected in
 	// case the UVM crashes.
 	DumpDirectoryPath = "io.microsoft.virtualmachine.dump-directory-path"
+
+	// EnablePauseContainerCreation provides a way to disable new HNS behavior
+	// that supports pause container removal and fallback to old networking behavior.
+	EnablePauseContainerCreation = "io.microsoft.enablepausecontainercreation"
 )
 
 // AnnotationExpansions maps annotations that will be expanded into an array of

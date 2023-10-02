@@ -5,13 +5,16 @@ package hcn
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim"
 	icni "github.com/Microsoft/hcsshim/internal/cni"
 	"github.com/Microsoft/hcsshim/internal/interop"
 	"github.com/Microsoft/hcsshim/internal/regstate"
 	"github.com/Microsoft/hcsshim/internal/runhcs"
+	"github.com/Microsoft/hcsshim/pkg/annotations"
 	"github.com/sirupsen/logrus"
 )
 
@@ -62,6 +65,7 @@ type HostComputeNamespace struct {
 	Type          NamespaceType       `json:",omitempty"` // Host, HostDefault, Guest, GuestDefault
 	Resources     []NamespaceResource `json:",omitempty"`
 	SchemaVersion SchemaVersion       `json:",omitempty"`
+	ReadyOnCreate bool                `json:",omitempty"`
 }
 
 // ModifyNamespaceSettingRequest is the structure used to send request to modify a namespace.
@@ -306,6 +310,31 @@ func GetNamespaceContainerIds(namespaceID string) ([]string, error) {
 	return containerIds, nil
 }
 
+func CanRemovePauseContainer(podAnnotations map[string]string) bool {
+	// If EnablePauseContainerCreation annotation is set to true, we fall back
+	// and create pause containers for process isolation.
+	if podAnnotations == nil {
+		return false
+	} else {
+		if isEnablePauseContainers, ok := podAnnotations[annotations.EnablePauseContainerCreation]; ok {
+			if strings.ToLower(isEnablePauseContainers) == "true" {
+				return false
+			}
+		}
+	}
+
+	// HNS versions >= 15.2 change how network compartments are
+	// initialized. They support removal of pause containers for
+	// process isolation.
+	hnsGlobals, err := hcsshim.GetHNSGlobals()
+	if err == nil {
+		return (hnsGlobals.Version.Major > 15) ||
+			(hnsGlobals.Version.Major == 15 && hnsGlobals.Version.Minor >= 2)
+	}
+
+	return false
+}
+
 // NewNamespace creates a new Namespace object
 func NewNamespace(nsType NamespaceType) *HostComputeNamespace {
 	return &HostComputeNamespace{
@@ -315,8 +344,14 @@ func NewNamespace(nsType NamespaceType) *HostComputeNamespace {
 }
 
 // Create Namespace.
-func (namespace *HostComputeNamespace) Create() (*HostComputeNamespace, error) {
+func (namespace *HostComputeNamespace) Create(podAnnotations map[string]string) (*HostComputeNamespace, error) {
 	logrus.Debugf("hcn::HostComputeNamespace::Create id=%s", namespace.Id)
+
+	// Set ReadyOnCreate flag to true only if pause containers
+	// can be removed.
+	if podAnnotations != nil && CanRemovePauseContainer(podAnnotations) {
+		namespace.ReadyOnCreate = true
+	}
 
 	jsonString, err := json.Marshal(namespace)
 	if err != nil {
