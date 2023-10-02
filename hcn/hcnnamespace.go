@@ -64,6 +64,7 @@ type HostComputeNamespace struct {
 	Type          NamespaceType       `json:",omitempty"` // Host, HostDefault, Guest, GuestDefault
 	Resources     []NamespaceResource `json:",omitempty"`
 	SchemaVersion SchemaVersion       `json:",omitempty"`
+	ReadyOnCreate bool                `json:",omitempty"`
 }
 
 // ModifyNamespaceSettingRequest is the structure used to send request to modify a namespace.
