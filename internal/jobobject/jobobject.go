@@ -14,6 +14,9 @@ import (
 
 	"github.com/Microsoft/hcsshim/internal/queue"
 	"github.com/Microsoft/hcsshim/internal/winapi"
+
+	//"github.com/opencontainers/runtime-spec/specs-go"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -537,6 +540,20 @@ func isJobSilo(h windows.Handle) bool {
 		nil,
 	)
 	return err == nil
+}
+
+func (job *JobObject) SetInformationJobObject(affinityCPUs []winapi.JOBOBJECT_CPU_GROUP_AFFINITY) error {
+	_, err := windows.SetInformationJobObject(
+		job.handle,
+		winapi.JobObjectGroupInformationEx,
+		uintptr(unsafe.Pointer(&affinityCPUs)),
+		uint32(unsafe.Sizeof(affinityCPUs)),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to set CPU affinities: %w", err)
+	}
+	return nil
 }
 
 // PromoteToSilo promotes a job object to a silo. There must be no running processess
