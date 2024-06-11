@@ -55,6 +55,7 @@ const (
 	JobObjectBasicProcessIdList              uint32 = 3
 	JobObjectBasicAndIoAccountingInformation uint32 = 8
 	JobObjectLimitViolationInformation       uint32 = 13
+	JobObjectGroupInformationEx              uint32 = 14
 	JobObjectMemoryUsageInformation          uint32 = 28
 	JobObjectNotificationLimitInformation2   uint32 = 33
 	JobObjectCreateSilo                      uint32 = 35
@@ -158,6 +159,13 @@ type JOBOBJECT_IO_ATTRIBUTION_INFORMATION struct {
 type JOBOBJECT_ASSOCIATE_COMPLETION_PORT struct {
 	CompletionKey  windows.Handle
 	CompletionPort windows.Handle
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-group_affinity
+type JOBOBJECT_CPU_GROUP_AFFINITY struct {
+	CpuMask  uintptr
+	CpuGroup uint16
+	Reserved [3]uint16
 }
 
 // BOOL IsProcessInJob(

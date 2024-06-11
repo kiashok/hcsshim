@@ -10,20 +10,24 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"unsafe"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestpath"
 	"github.com/Microsoft/hcsshim/internal/hcs"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
+	"github.com/Microsoft/hcsshim/internal/jobobject"
 	"github.com/Microsoft/hcsshim/internal/layers"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/internal/resources"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/uvm"
+	"github.com/Microsoft/hcsshim/internal/winapi"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/windows"
 )
 
 var (
@@ -282,7 +286,87 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 	if err != nil {
 		return nil, r, err
 	}
+
+	// if container is process isolated, check if affinityCPUs has been set in createOptions.
+	// If yes, set information on the job object created for this container
+	if coi.HostingSystem == nil && coi.Spec.Windows != nil {
+		err = setCPUAffinityOnJobObject(ctx, coi.Spec, system.ID())
+		if err != nil {
+			return nil, r, err
+		}
+	}
+
 	return system, r, nil
+}
+
+func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSystemId string) error {
+	//
+	if spec.Windows.Resources == nil || spec.Windows.Resources.CPU == nil ||
+		spec.Windows.Resources.CPU.AffinityCPUs == nil {
+		return nil
+	}
+
+	defaultJobObjectName := fmt.Sprintf(`\Container_%s`, computeSystemId)
+	fmt.Printf("default JO name %v", defaultJobObjectName)
+	/*
+		unicodeJobName, err := winapi.NewUnicodeString(defaultJobObjectName)
+		if err != nil {
+			return fmt.Errorf("Error getting unicodeJobName %v", err)
+		}
+
+			jobHandle, err := winapi.OpenJobObject(winapi.JOB_OBJECT_ALL_ACCESS, 0, unicodeJobName.Buffer)
+			if err != nil {
+				return fmt.Errorf("Error opening job object %v", err)
+			}
+	*/
+	jobOptions := &jobobject.Options{
+		UseNTVariant: true,
+		Name:         defaultJobObjectName,
+	}
+	job, err := jobobject.Open(ctx, jobOptions)
+	if err != nil {
+		return err
+	}
+	defer job.Close()
+
+	// check for numa node number
+	if spec.Windows.Resources.CPU.AffinityPreferredNumaNodes != nil {
+		// numberOfPreferredNumaNodes := uint32(len(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes))
+		// list of numa nodes might need to be set for this container. Therefore ensure we have enough space
+		// in attrList for that.
+		attrList, err := windows.NewProcThreadAttributeList(2)
+		if err != nil {
+			return fmt.Errorf("failed to initialize process thread attribute list: %w", err)
+		}
+		defer attrList.Delete()
+
+		// Set up the process to only inherit stdio handles and nothing else.
+		numaNode := (uint16)(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes[0])
+		err = attrList.Update(
+			windows.PROC_THREAD_ATTRIBUTE_PREFERRED_NODE,
+			unsafe.Pointer(&numaNode),
+			//uintptr(len(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes))*unsafe.Sizeof(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes[0]),
+			//uintptr(unsafe.Sizeof(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes[0])),
+			uintptr(unsafe.Sizeof(numaNode)),
+		)
+		if err != nil {
+			return fmt.Errorf("Error updating proc thread attribute for numa node, %v", err)
+		}
+
+		err = job.UpdateProcThreadAttribute(attrList)
+		if err != nil {
+			return fmt.Errorf("Error updating proc thread attribute for JO, %v", err)
+		}
+	}
+
+	info := make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, len(spec.Windows.Resources.CPU.AffinityCPUs))
+	for i, cpu := range spec.Windows.Resources.CPU.AffinityCPUs {
+		info[i].CpuMask = (uintptr)(cpu.CPUMask)
+		info[i].CpuGroup = (uint16)(cpu.CPUGroup)
+		info[i].Reserved = [3]uint16{0, 0, 0}
+	}
+
+	return job.SetInformationJobObject(info)
 }
 
 // isV2Xenon returns true if the create options are for a HCS schema V2 xenon container
