@@ -543,11 +543,13 @@ func isJobSilo(h windows.Handle) bool {
 }
 
 func (job *JobObject) SetInformationJobObject(affinityCPUs []winapi.JOBOBJECT_CPU_GROUP_AFFINITY) error {
+	len := len(affinityCPUs)
+	sizeOfGroupAffinity := unsafe.Sizeof(winapi.JOBOBJECT_CPU_GROUP_AFFINITY{})
 	_, err := windows.SetInformationJobObject(
 		job.handle,
 		winapi.JobObjectGroupInformationEx,
-		uintptr(unsafe.Pointer(&affinityCPUs)),
-		uint32(unsafe.Sizeof(affinityCPUs)),
+		uintptr(unsafe.Pointer(&affinityCPUs[0])),
+		uint32(uintptr(len)*sizeOfGroupAffinity),
 	)
 
 	if err != nil {

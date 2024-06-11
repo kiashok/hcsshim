@@ -161,9 +161,11 @@ type JOBOBJECT_ASSOCIATE_COMPLETION_PORT struct {
 	CompletionPort windows.Handle
 }
 
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-group_affinity
 type JOBOBJECT_CPU_GROUP_AFFINITY struct {
 	CpuMask  uint64
 	CpuGroup uint32
+	//Reserved [3]uint32
 }
 
 // BOOL IsProcessInJob(

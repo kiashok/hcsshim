@@ -23,6 +23,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/resources"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/uvm"
+	"github.com/Microsoft/hcsshim/internal/winapi"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 )
@@ -297,13 +298,25 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 }
 
 func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSystemId string) error {
+	//
 	if spec.Windows.Resources == nil || spec.Windows.Resources.CPU == nil ||
 		spec.Windows.Resources.CPU.AffinityCPUs == nil {
 		return nil
 	}
 
 	defaultJobObjectName := fmt.Sprintf(`\Container_%s`, computeSystemId)
-	//	fmt.Printf("default JO name %v", defaultJobObjectName)
+	fmt.Printf("default JO name %v", defaultJobObjectName)
+	/*
+		unicodeJobName, err := winapi.NewUnicodeString(defaultJobObjectName)
+		if err != nil {
+			return fmt.Errorf("Error getting unicodeJobName %v", err)
+		}
+
+			jobHandle, err := winapi.OpenJobObject(winapi.JOB_OBJECT_ALL_ACCESS, 0, unicodeJobName.Buffer)
+			if err != nil {
+				return fmt.Errorf("Error opening job object %v", err)
+			}
+	*/
 	jobOptions := &jobobject.Options{
 		UseNTVariant: true,
 		Name:         defaultJobObjectName,
@@ -314,7 +327,15 @@ func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSys
 	}
 	defer job.Close()
 
-	return nil
+	info := make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, len(spec.Windows.Resources.CPU.AffinityCPUs))
+
+	for i, cpu := range spec.Windows.Resources.CPU.AffinityCPUs {
+		info[i].CpuMask = cpu.CPUMask
+		info[i].CpuGroup = cpu.CPUGroup
+		//info[i].Reserved = [3]uint32{0, 0, 0}
+	}
+
+	return job.SetInformationJobObject(info)
 }
 
 // isV2Xenon returns true if the create options are for a HCS schema V2 xenon container
