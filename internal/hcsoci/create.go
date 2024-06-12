@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"unsafe"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
 	"github.com/Microsoft/hcsshim/internal/cow"
@@ -331,7 +330,8 @@ func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSys
 	info := make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, len(spec.Windows.Resources.CPU.AffinityCPUs))
 
 	for i, cpu := range spec.Windows.Resources.CPU.AffinityCPUs {
-		info[i].CpuMask = (uintptr)(unsafe.Pointer(&cpu.CPUMask))
+		info[i].CpuMask = cpu.CPUMask
+		//(uintptr)(unsafe.Pointer(&cpu.CPUMask))
 		info[i].CpuGroup = (uint16)(cpu.CPUGroup)
 		//info[i].Reserved = [3]uint32{0, 0, 0}
 	}
