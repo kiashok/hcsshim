@@ -543,15 +543,38 @@ func isJobSilo(h windows.Handle) bool {
 }
 
 func (job *JobObject) SetInformationJobObject(affinityCPUs []winapi.JOBOBJECT_CPU_GROUP_AFFINITY) error {
-	len := len(affinityCPUs)
-	sizeOfGroupAffinity := unsafe.Sizeof(winapi.JOBOBJECT_CPU_GROUP_AFFINITY{})
+	//len := len(affinityCPUs)
+	//sizeOfGroupAffinity := unsafe.Sizeof(winapi.JOBOBJECT_CPU_GROUP_AFFINITY{})
 	_, err := windows.SetInformationJobObject(
 		job.handle,
 		winapi.JobObjectGroupInformationEx,
+		//uintptr(unsafe.Pointer(affinityCPUs)),
 		uintptr(unsafe.Pointer(&affinityCPUs[0])),
-		uint32(uintptr(len)*sizeOfGroupAffinity),
+		//uint32(unsafe.Sizeof(affinityCPUs)),
+		uint32(unsafe.Sizeof(affinityCPUs)*2),
 	)
 
+	if err != nil {
+		return fmt.Errorf("failed to set CPU affinities: %w", err)
+	}
+	return nil
+}
+
+func (job *JobObject) GetInformationJobObject() error {
+	info := make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, 10)
+	var len uint32
+	//sizeOfGroupAffinity := unsafe.Sizeof(winapi.JOBOBJECT_CPU_GROUP_AFFINITY{})
+	err := windows.QueryInformationJobObject(
+		job.handle,
+		(int32)(winapi.JobObjectGroupInformationEx),
+		//uintptr(unsafe.Pointer(affinityCPUs)),
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)*10),
+		&len,
+	)
+
+	fmt.Printf("length returned %v", len)
+	fmt.Printf("data returned %v", info)
 	if err != nil {
 		return fmt.Errorf("failed to set CPU affinities: %w", err)
 	}
