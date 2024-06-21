@@ -619,6 +619,8 @@ type WindowsCPUResources struct {
 	Maximum *uint16 `json:"maximum,omitempty"`
 	// Set of CPUs to affinitize for this container.
 	AffinityCPUs []WindowsCPUGroupAffinity `json:"affinityCPUs,omitempty"`
+	// Specifies preferred set of numa node numbers to affinitize for this container.
+	AffinityPreferredNumaNodes []int64 `json:"affinityPreferredNumaNodes,omitempty"`
 }
 
 // Similar to _GROUP_AFFINITY struct defined in
