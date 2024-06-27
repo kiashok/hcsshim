@@ -533,6 +533,40 @@ func isJobSilo(h windows.Handle) bool {
 	return err == nil
 }
 
+func (job *JobObject) SetInformationJobObject(affinityCPUs []winapi.JOBOBJECT_CPU_GROUP_AFFINITY) error {
+	len := len(affinityCPUs)
+	sizeOfGroupAffinity := unsafe.Sizeof(affinityCPUs[0])
+	_, err := windows.SetInformationJobObject(
+		job.handle,
+		winapi.JobObjectGroupInformationEx,
+		uintptr(unsafe.Pointer(&affinityCPUs[0])),
+		uint32(uintptr(len)*sizeOfGroupAffinity),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set CPU affinities: %w", err)
+	}
+
+	return nil
+}
+
+func (job *JobObject) GetInformationJobObject() error {
+	info := make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, 10)
+	var len uint32
+	err := windows.QueryInformationJobObject(
+		job.handle,
+		(int32)(winapi.JobObjectGroupInformationEx),
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)*10),
+		&len,
+	)
+	fmt.Printf("length returned %v", len)
+	fmt.Printf("data returned %v", info)
+	if err != nil {
+		return fmt.Errorf("failed to set CPU affinities: %w", err)
+	}
+	return nil
+}
+
 // PromoteToSilo promotes a job object to a silo. There must be no running processess
 // in the job for this to succeed. If the job is already a silo this is a no-op.
 func (job *JobObject) PromoteToSilo() error {

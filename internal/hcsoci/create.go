@@ -20,12 +20,16 @@ import (
 	"github.com/Microsoft/hcsshim/internal/hcs"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/hvsocket"
+	"github.com/Microsoft/hcsshim/internal/jobobject"
 	"github.com/Microsoft/hcsshim/internal/layers"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/internal/resources"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/uvm"
+	"github.com/Microsoft/hcsshim/internal/winapi"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -311,7 +315,51 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 	if err != nil {
 		return nil, r, err
 	}
+
+	// if container is process isolated, check if affinityCPUs has been set in createOptions.
+	// If yes, set information on the job object created for this container
+
+	if coi.HostingSystem == nil && coi.Spec.Windows != nil {
+		err = setCPUAffinityOnJobObject(ctx, coi.Spec, system.ID())
+		if err != nil {
+			return nil, r, err
+		}
+	}
+
 	return system, r, nil
+}
+
+func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSystemId string) error {
+	//
+	if spec == nil || spec.Windows == nil || spec.Windows.Resources == nil ||
+		spec.Windows.Resources.CPU == nil || spec.Windows.Resources.CPU.AffinityCPUs == nil {
+		return nil
+	}
+
+	defaultJobObjectName := fmt.Sprintf(`\Container_%s`, computeSystemId)
+	log.G(ctx).Debugf("default JO name %v", defaultJobObjectName)
+
+	jobOptions := &jobobject.Options{
+		UseNTVariant: true,
+		Name:         defaultJobObjectName,
+	}
+	job, err := jobobject.Open(ctx, jobOptions)
+	if err != nil {
+		return err
+	}
+	defer job.Close()
+
+	info := []winapi.JOBOBJECT_CPU_GROUP_AFFINITY{}
+	if spec.Windows.Resources.CPU.AffinityCPUs != nil {
+		info = make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, len(spec.Windows.Resources.CPU.AffinityCPUs))
+		for i, cpu := range spec.Windows.Resources.CPU.AffinityCPUs {
+			info[i].CpuMask = (uintptr)(cpu.CPUMask)
+			info[i].CpuGroup = (uint16)(cpu.CPUGroup)
+			info[i].Reserved = [3]uint16{0, 0, 0}
+		}
+	}
+
+	return job.SetInformationJobObject(info)
 }
 
 // isV2Xenon returns true if the create options are for a HCS schema V2 xenon container
