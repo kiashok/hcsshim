@@ -1,6 +1,6 @@
 module github.com/Microsoft/hcsshim
 
-go 1.21
+go 1.22.4
 
 require (
 	github.com/Microsoft/cosesign1go v1.1.0
@@ -97,3 +97,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240123012728-ef4313101c80 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+replace github.com/opencontainers/runtime-spec => ../../runtime-spec/

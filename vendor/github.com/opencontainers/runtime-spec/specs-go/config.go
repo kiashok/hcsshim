@@ -187,6 +187,10 @@ type Hook struct {
 type Hooks struct {
 	// Prestart is Deprecated. Prestart is a list of hooks to be run before the container process is executed.
 	// It is called in the Runtime Namespace
+	//
+	// Deprecated: use [Hooks.CreateRuntime], [Hooks.CreateContainer], and
+	// [Hooks.StartContainer] instead, which allow more granular hook control
+	// during the create and start phase.
 	Prestart []Hook `json:"prestart,omitempty"`
 	// CreateRuntime is a list of hooks to be run after the container has been created but before pivot_root or any equivalent operation has been called
 	// It is called in the Runtime Namespace
@@ -371,6 +375,12 @@ type LinuxMemory struct {
 	// Total memory limit (memory + swap).
 	Swap *int64 `json:"swap,omitempty"`
 	// Kernel memory limit (in bytes).
+	//
+	// Deprecated: kernel-memory limits are not supported in cgroups v2, and
+	// were obsoleted in [kernel v5.4]. This field should no longer be used,
+	// as it may be ignored by runtimes.
+	//
+	// [kernel v5.4]: https://github.com/torvalds/linux/commit/0158115f702b0ba208ab0
 	Kernel *int64 `json:"kernel,omitempty"`
 	// Kernel memory limit for tcp (in bytes)
 	KernelTCP *int64 `json:"kernelTCP,omitempty"`
@@ -617,6 +627,19 @@ type WindowsCPUResources struct {
 	// cycles per 10,000 cycles. Set processor `maximum` to a percentage times
 	// 100.
 	Maximum *uint16 `json:"maximum,omitempty"`
+	// Set of CPUs to affinitize for this container.
+	AffinityCPUs []WindowsCPUGroupAffinity `json:"affinityCPUs,omitempty"`
+	// Specifies preferred set of numa node numbers to affinitize for this container.
+	AffinityPreferredNumaNodes []uint32 `json:"affinityPreferredNumaNodes,omitempty"`
+}
+
+// Similar to _GROUP_AFFINITY struct defined in
+// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/miniport/ns-miniport-_group_affinity
+type WindowsCPUGroupAffinity struct {
+	// CPU mask relative to this CPU group.
+	CPUMask uint64 `json:"cpuMask,omitempty"`
+	// Processor group the mask refers to, as returned by GetLogicalProcessorInformationEx.
+	CPUGroup uint32 `json:"cpuGroup,omitempty"`
 }
 
 // WindowsStorageResources contains storage resource management settings.
