@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"unsafe"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim/internal/coreinfo"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestpath"
 	"github.com/Microsoft/hcsshim/internal/hcs"
@@ -27,7 +27,6 @@ import (
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sys/windows"
 )
 
 var (
@@ -301,8 +300,7 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 
 func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSystemId string) error {
 	//
-	if spec.Windows.Resources == nil || spec.Windows.Resources.CPU == nil ||
-		spec.Windows.Resources.CPU.AffinityCPUs == nil {
+	if spec.Windows.Resources == nil || spec.Windows.Resources.CPU == nil {
 		return nil
 	}
 
@@ -328,42 +326,70 @@ func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSys
 		return err
 	}
 	defer job.Close()
+	/*
+		// check for numa node number
+		if spec.Windows.Resources.CPU.AffinityPreferredNumaNodes != nil {
+			// numberOfPreferredNumaNodes := uint32(len(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes))
+			// list of numa nodes might need to be set for this container. Therefore ensure we have enough space
+			// in attrList for that.
+			attrList, err := windows.NewProcThreadAttributeList(2)
+			if err != nil {
+				return fmt.Errorf("failed to initialize process thread attribute list: %w", err)
+			}
+			defer attrList.Delete()
 
-	// check for numa node number
-	if spec.Windows.Resources.CPU.AffinityPreferredNumaNodes != nil {
-		// numberOfPreferredNumaNodes := uint32(len(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes))
-		// list of numa nodes might need to be set for this container. Therefore ensure we have enough space
-		// in attrList for that.
-		attrList, err := windows.NewProcThreadAttributeList(2)
-		if err != nil {
-			return fmt.Errorf("failed to initialize process thread attribute list: %w", err)
+			// Set up the process to only inherit stdio handles and nothing else.
+			numaNode := (uint16)(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes[0])
+			err = attrList.Update(
+				windows.PROC_THREAD_ATTRIBUTE_PREFERRED_NODE,
+				unsafe.Pointer(&numaNode),
+				//uintptr(len(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes))*unsafe.Sizeof(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes[0]),
+				//uintptr(unsafe.Sizeof(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes[0])),
+				uintptr(unsafe.Sizeof(numaNode)),
+			)
+			if err != nil {
+				return fmt.Errorf("Error updating proc thread attribute for numa node, %v", err)
+			}
+
+			err = job.UpdateProcThreadAttribute(attrList)
+			if err != nil {
+				return fmt.Errorf("Error updating proc thread attribute for JO, %v", err)
+			}
 		}
-		defer attrList.Delete()
-
-		// Set up the process to only inherit stdio handles and nothing else.
-		numaNode := (uint16)(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes[0])
-		err = attrList.Update(
-			windows.PROC_THREAD_ATTRIBUTE_PREFERRED_NODE,
-			unsafe.Pointer(&numaNode),
-			//uintptr(len(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes))*unsafe.Sizeof(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes[0]),
-			//uintptr(unsafe.Sizeof(spec.Windows.Resources.CPU.AffinityPreferredNumaNodes[0])),
-			uintptr(unsafe.Sizeof(numaNode)),
-		)
-		if err != nil {
-			return fmt.Errorf("Error updating proc thread attribute for numa node, %v", err)
-		}
-
-		err = job.UpdateProcThreadAttribute(attrList)
-		if err != nil {
-			return fmt.Errorf("Error updating proc thread attribute for JO, %v", err)
+	*/
+	numaNodeInfo := []winapi.JOBOBJECT_CPU_GROUP_AFFINITY{}
+	info := []winapi.JOBOBJECT_CPU_GROUP_AFFINITY{}
+	if spec.Windows.Resources.CPU.AffinityCPUs != nil {
+		info := make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, len(spec.Windows.Resources.CPU.AffinityCPUs))
+		for i, cpu := range spec.Windows.Resources.CPU.AffinityCPUs {
+			info[i].CpuMask = (uintptr)(cpu.CPUMask)
+			info[i].CpuGroup = (uint16)(cpu.CPUGroup)
+			info[i].Reserved = [3]uint16{0, 0, 0}
 		}
 	}
 
-	info := make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, len(spec.Windows.Resources.CPU.AffinityCPUs))
-	for i, cpu := range spec.Windows.Resources.CPU.AffinityCPUs {
-		info[i].CpuMask = (uintptr)(cpu.CPUMask)
-		info[i].CpuGroup = (uint16)(cpu.CPUGroup)
-		info[i].Reserved = [3]uint16{0, 0, 0}
+	if spec.Windows.Resources.CPU.AffinityPreferredNumaNodes != nil {
+		numaNodeInfo, err = coreinfo.GetNumaNodeToProcessorInfo()
+		if err != nil {
+			return fmt.Errorf("error getting numa node info: %v", err)
+		}
+		// check if cpu affinities are also set and consolidate the masks
+		if len(info) != 0 {
+			for _, numaNode := range numaNodeInfo {
+				doesCpuAffinityExist := false
+				for ind, _ := range info {
+					if info[ind].CpuGroup == numaNode.CpuGroup {
+						doesCpuAffinityExist = true
+						// overwrite the entire mask of the numa node
+						info[ind].CpuMask = numaNode.CpuMask
+						break
+					}
+				}
+				if doesCpuAffinityExist == false {
+					info = append(info, numaNode)
+				}
+			}
+		}
 	}
 
 	return job.SetInformationJobObject(info)
