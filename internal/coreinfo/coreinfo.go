@@ -67,7 +67,7 @@ func GetNumaNodeToProcessorInfo() ([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, error)
 		uintptr(unsafe.Pointer(&returnLength)),
 	)
 	if r1 != 0 && err.(syscall.Errno) != syscall.ERROR_INSUFFICIENT_BUFFER {
-		return nil, fmt.Errorf("Call to GetLogicalProcessorInformationEx failed: %v", err)
+		return nil, fmt.Errorf("call to GetLogicalProcessorInformationEx failed: %v", err)
 	}
 
 	// Allocate the buffer with the length it should be
@@ -80,10 +80,10 @@ func GetNumaNodeToProcessorInfo() ([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, error)
 		uintptr(unsafe.Pointer(&returnLength)),
 	)
 	if r1 == 0 {
-		return nil, fmt.Errorf("Call to GetLogicalProcessorInformationEx failed: %v", err)
+		return nil, fmt.Errorf("call to GetLogicalProcessorInformationEx failed: %v", err)
 	}
 
-	var groupMasks []winapi.JOBOBJECT_CPU_GROUP_AFFINITY
+	var allGroupMasks []winapi.JOBOBJECT_CPU_GROUP_AFFINITY
 	for offset := 0; offset < len(buffer); {
 		info := (*_SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)(unsafe.Pointer(&buffer[offset]))
 		numaNodeRelationship := (*_NUMA_NODE_RELATIONSHIP)(unsafe.Pointer(&info.data))
@@ -93,9 +93,9 @@ func GetNumaNodeToProcessorInfo() ([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, error)
 		for i := 0; i < int(numaNodeRelationship.GroupCount); i++ {
 			groupMasks[i] = *(*winapi.JOBOBJECT_CPU_GROUP_AFFINITY)(unsafe.Pointer(uintptr(unsafe.Pointer(&numaNodeRelationship.GroupMasks)) + uintptr(i)*unsafe.Sizeof(winapi.JOBOBJECT_CPU_GROUP_AFFINITY{})))
 		}
-
+		allGroupMasks = append(allGroupMasks, groupMasks...)
 		offset += int(info.Size)
 	}
 
-	return groupMasks, nil
+	return allGroupMasks, nil
 }

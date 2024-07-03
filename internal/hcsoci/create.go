@@ -288,6 +288,7 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 
 	// if container is process isolated, check if affinityCPUs has been set in createOptions.
 	// If yes, set information on the job object created for this container
+
 	if coi.HostingSystem == nil && coi.Spec.Windows != nil {
 		err = setCPUAffinityOnJobObject(ctx, coi.Spec, system.ID())
 		if err != nil {
@@ -300,7 +301,8 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 
 func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSystemId string) error {
 	//
-	if spec.Windows.Resources == nil || spec.Windows.Resources.CPU == nil {
+	if spec == nil || spec.Windows == nil || spec.Windows.Resources == nil ||
+		spec.Windows.Resources.CPU == nil || spec.Windows.Resources.CPU.AffinityCPUs == nil {
 		return nil
 	}
 
@@ -357,10 +359,10 @@ func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSys
 			}
 		}
 	*/
-	numaNodeInfo := []winapi.JOBOBJECT_CPU_GROUP_AFFINITY{}
+	//	numaNodeInfo := []winapi.JOBOBJECT_CPU_GROUP_AFFINITY{}
 	info := []winapi.JOBOBJECT_CPU_GROUP_AFFINITY{}
 	if spec.Windows.Resources.CPU.AffinityCPUs != nil {
-		info := make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, len(spec.Windows.Resources.CPU.AffinityCPUs))
+		info = make([]winapi.JOBOBJECT_CPU_GROUP_AFFINITY, len(spec.Windows.Resources.CPU.AffinityCPUs))
 		for i, cpu := range spec.Windows.Resources.CPU.AffinityCPUs {
 			info[i].CpuMask = (uintptr)(cpu.CPUMask)
 			info[i].CpuGroup = (uint16)(cpu.CPUGroup)
@@ -369,12 +371,12 @@ func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSys
 	}
 
 	if spec.Windows.Resources.CPU.AffinityPreferredNumaNodes != nil {
-		numaNodeInfo, err = coreinfo.GetNumaNodeToProcessorInfo()
+		numaNodeInfo, err := coreinfo.GetNumaNodeToProcessorInfo()
 		if err != nil {
 			return fmt.Errorf("error getting numa node info: %v", err)
 		}
 		// check if cpu affinities are also set and consolidate the masks
-		if len(info) != 0 {
+		if len(info) > 0 {
 			for _, numaNode := range numaNodeInfo {
 				doesCpuAffinityExist := false
 				for ind, _ := range info {
@@ -385,7 +387,7 @@ func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSys
 						break
 					}
 				}
-				if doesCpuAffinityExist == false {
+				if !doesCpuAffinityExist {
 					info = append(info, numaNode)
 				}
 			}
