@@ -10,11 +10,7 @@ import (
 	"strings"
 	"sync"
 
-<<<<<<< HEAD
-=======
 	"github.com/Microsoft/hcsshim"
-	"github.com/Microsoft/hcsshim/internal/layers"
->>>>>>> a527acc55 (Remove pause container creation for process isolated containers)
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/internal/uvm"
@@ -80,7 +76,7 @@ func isPauseContainerRequired() bool {
 	isPauseContainerNeeded := true
 	hnsGlobals, err := hcsshim.GetHNSGlobals()
 	if err == nil {
-		if hnsGlobals.Version.Major > 15 ||
+		if (hnsGlobals.Version.Major == 13 && hnsGlobals.Version.Minor == 3) || hnsGlobals.Version.Major > 15 ||
 			(hnsGlobals.Version.Major == 15 && hnsGlobals.Version.Minor >= 2) {
 			isPauseContainerNeeded = false
 		}

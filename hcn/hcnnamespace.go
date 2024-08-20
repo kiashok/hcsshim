@@ -317,7 +317,7 @@ func NewNamespace(nsType NamespaceType) *HostComputeNamespace {
 	isReadyOnCreate := false
 	hnsGlobals, err := hcsshim.GetHNSGlobals()
 	if err == nil {
-		isReadyOnCreate = (hnsGlobals.Version.Major > 15) ||
+		isReadyOnCreate = (hnsGlobals.Version.Major == 13 && hnsGlobals.Version.Minor == 3) || (hnsGlobals.Version.Major > 15) ||
 			(hnsGlobals.Version.Major == 15 && hnsGlobals.Version.Minor >= 2)
 	}
 
