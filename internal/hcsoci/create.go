@@ -12,7 +12,6 @@ import (
 	"strconv"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim/internal/coreinfo"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestpath"
 	"github.com/Microsoft/hcsshim/internal/hcs"
@@ -370,30 +369,31 @@ func setCPUAffinityOnJobObject(ctx context.Context, spec *specs.Spec, computeSys
 		}
 	}
 
-	if spec.Windows.Resources.CPU.AffinityPreferredNumaNodes != nil {
-		numaNodeInfo, err := coreinfo.GetNumaNodeToProcessorInfo()
-		if err != nil {
-			return fmt.Errorf("error getting numa node info: %v", err)
-		}
-		// check if cpu affinities are also set and consolidate the masks
-		if len(info) > 0 {
-			for _, numaNode := range numaNodeInfo {
-				doesCpuAffinityExist := false
-				for ind, _ := range info {
-					if info[ind].CpuGroup == numaNode.CpuGroup {
-						doesCpuAffinityExist = true
-						// overwrite the entire mask of the numa node
-						info[ind].CpuMask = numaNode.CpuMask
-						break
+	/*
+		if spec.Windows.Resources.CPU.AffinityPreferredNumaNodes != nil {
+			numaNodeInfo, err := coreinfo.GetNumaNodeToProcessorInfo()
+			if err != nil {
+				return fmt.Errorf("error getting numa node info: %v", err)
+			}
+			// check if cpu affinities are also set and consolidate the masks
+			if len(info) > 0 {
+				for _, numaNode := range numaNodeInfo {
+					doesCpuAffinityExist := false
+					for ind, _ := range info {
+						if info[ind].CpuGroup == numaNode.CpuGroup {
+							doesCpuAffinityExist = true
+							// overwrite the entire mask of the numa node
+							info[ind].CpuMask = numaNode.CpuMask
+							break
+						}
 					}
-				}
-				if !doesCpuAffinityExist {
-					info = append(info, numaNode)
+					if !doesCpuAffinityExist {
+						info = append(info, numaNode)
+					}
 				}
 			}
 		}
-	}
-
+	*/
 	return job.SetInformationJobObject(info)
 }
 

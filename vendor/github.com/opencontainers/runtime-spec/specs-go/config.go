@@ -94,6 +94,8 @@ type Process struct {
 	SelinuxLabel string `json:"selinuxLabel,omitempty" platform:"linux"`
 	// IOPriority contains the I/O priority settings for the cgroup.
 	IOPriority *LinuxIOPriority `json:"ioPriority,omitempty" platform:"linux"`
+	// ExecCPUAffinity specifies CPU affinity for exec processes.
+	ExecCPUAffinity *CPUAffinity `json:"execCPUAffinity,omitempty" platform:"linux"`
 }
 
 // LinuxCapabilities specifies the list of allowed capabilities that are kept for a process.
@@ -126,6 +128,12 @@ const (
 	IOPRIO_CLASS_BE   IOPriorityClass = "IOPRIO_CLASS_BE"
 	IOPRIO_CLASS_IDLE IOPriorityClass = "IOPRIO_CLASS_IDLE"
 )
+
+// CPUAffinity specifies process' CPU affinity.
+type CPUAffinity struct {
+	Initial string `json:"initial,omitempty"`
+	Final   string `json:"final,omitempty"`
+}
 
 // Box specifies dimensions of a rectangle. Used for specifying the size of a console.
 type Box struct {
@@ -629,8 +637,6 @@ type WindowsCPUResources struct {
 	Maximum *uint16 `json:"maximum,omitempty"`
 	// Set of CPUs to affinitize for this container.
 	AffinityCPUs []WindowsCPUGroupAffinity `json:"affinityCPUs,omitempty"`
-	// Specifies preferred set of numa node numbers to affinitize for this container.
-	AffinityPreferredNumaNodes []uint32 `json:"affinityPreferredNumaNodes,omitempty"`
 }
 
 // Similar to _GROUP_AFFINITY struct defined in
@@ -638,7 +644,7 @@ type WindowsCPUResources struct {
 type WindowsCPUGroupAffinity struct {
 	// CPU mask relative to this CPU group.
 	CPUMask uint64 `json:"cpuMask,omitempty"`
-	// Processor group the mask refers to, as returned by GetLogicalProcessorInformationEx.
+	// CPU group that this CPU belongs to.
 	CPUGroup uint32 `json:"cpuGroup,omitempty"`
 }
 
