@@ -173,6 +173,21 @@ func (w *baseLayerWriter) Close() (err error) {
 			if err != nil {
 				return err
 			}
+
+			/*
+				// hack to copy some executables over to GCS for sidecar implementation
+				err = winio.EnableProcessPrivileges([]string{winio.SeBackupPrivilege, winio.SeRestorePrivilege})
+				if err != nil {
+					return err
+				}
+
+				sourcePath := filepath.Join("C:\\", "Users", "kiashok", "cc-images", "config.toml")
+				dstPath := filepath.Join(w.root.Name(), "UtilityVM", "Files", "Windows")
+				err = copyfile.CopyFile(w.ctx, sourcePath, dstPath, true)
+				if err != nil {
+					return fmt.Errorf("err copying file into GCS %v", err)
+				}
+			*/
 			err = ProcessUtilityVMImage(w.ctx, filepath.Join(w.root.Name(), "UtilityVM"))
 			if err != nil {
 				return err
