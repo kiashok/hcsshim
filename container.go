@@ -12,7 +12,12 @@ import (
 	"github.com/Microsoft/hcsshim/internal/hcs"
 	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	"github.com/Microsoft/hcsshim/internal/mergemaps"
+	hcstypes "github.com/Microsoft/hcsshim/pkg/hcs"
 )
+
+// TODO: The following hcs schema type definitions have been moved to pkg/hcs package.
+// These definitions will continue to remain here to avoid breaking current downstream users
+// and can be safely removed from here once hcsshim moves to a major release.
 
 // ContainerProperties holds the properties for a container and the processes running in that container
 type ContainerProperties = schema1.ContainerProperties
@@ -95,7 +100,7 @@ func OpenContainer(id string) (Container, error) {
 }
 
 // GetContainers gets a list of the containers on the system that match the query
-func GetContainers(q ComputeSystemQuery) ([]ContainerProperties, error) {
+func GetContainers(q ComputeSystemQuery) ([]hcstypes.ContainerProperties, error) {
 	return hcs.GetComputeSystems(context.Background(), q)
 }
 
@@ -167,18 +172,18 @@ func (container *container) HasPendingUpdates() (bool, error) {
 }
 
 // Statistics returns statistics for the container. This is a legacy v1 call
-func (container *container) Statistics() (Statistics, error) {
-	properties, err := container.system.Properties(context.Background(), schema1.PropertyTypeStatistics)
+func (container *container) Statistics() (hcstypes.Statistics, error) {
+	properties, err := container.system.Properties(context.Background(), hcstypes.PropertyTypeStatistics)
 	if err != nil {
-		return Statistics{}, convertSystemError(err, container)
+		return hcstypes.Statistics{}, convertSystemError(err, container)
 	}
 
 	return properties.Statistics, nil
 }
 
 // ProcessList returns an array of ProcessListItems for the container. This is a legacy v1 call
-func (container *container) ProcessList() ([]ProcessListItem, error) {
-	properties, err := container.system.Properties(context.Background(), schema1.PropertyTypeProcessList)
+func (container *container) ProcessList() ([]hcstypes.ProcessListItem, error) {
+	properties, err := container.system.Properties(context.Background(), hcstypes.PropertyTypeProcessList)
 	if err != nil {
 		return nil, convertSystemError(err, container)
 	}
@@ -187,8 +192,8 @@ func (container *container) ProcessList() ([]ProcessListItem, error) {
 }
 
 // This is a legacy v1 call
-func (container *container) MappedVirtualDisks() (map[int]MappedVirtualDiskController, error) {
-	properties, err := container.system.Properties(context.Background(), schema1.PropertyTypeMappedVirtualDisk)
+func (container *container) MappedVirtualDisks() (map[int]hcstypes.MappedVirtualDiskController, error) {
+	properties, err := container.system.Properties(context.Background(), hcstypes.PropertyTypeMappedVirtualDisk)
 	if err != nil {
 		return nil, convertSystemError(err, container)
 	}
@@ -220,6 +225,6 @@ func (container *container) Close() error {
 }
 
 // Modify the System
-func (container *container) Modify(config *ResourceModificationRequestResponse) error {
+func (container *container) Modify(config *hcstypes.ResourceModificationRequestResponse) error {
 	return convertSystemError(container.system.Modify(context.Background(), config), container)
 }
