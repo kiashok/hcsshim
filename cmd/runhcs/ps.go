@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"os"
 
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 	"github.com/Microsoft/hcsshim/internal/appargs"
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	"github.com/urfave/cli"
 )
 
@@ -33,7 +33,7 @@ var psCommand = cli.Command{
 		}
 		defer container.Close()
 
-		props, err := container.hc.Properties(gcontext.Background(), schema1.PropertyTypeProcessList)
+		props, err := container.hc.Properties(gcontext.Background(), hcstypes.PropertyTypeProcessList)
 		if err != nil {
 			return err
 		}

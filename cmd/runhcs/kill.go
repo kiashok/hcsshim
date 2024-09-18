@@ -5,9 +5,9 @@ package main
 import (
 	gcontext "context"
 
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 	"github.com/Microsoft/hcsshim/internal/appargs"
 	"github.com/Microsoft/hcsshim/internal/hcs"
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	"github.com/Microsoft/hcsshim/internal/signals"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/urfave/cli"
@@ -61,7 +61,7 @@ signal to the init process of the "ubuntu01" container:
 					return err
 				}
 				defer uvm.Close()
-				if props, err := uvm.Properties(gcontext.Background(), schema1.PropertyTypeGuestConnection); err == nil &&
+				if props, err := uvm.Properties(gcontext.Background(), hcstypes.PropertyTypeGuestConnection); err == nil &&
 					props.GuestConnectionInfo.GuestDefinedCapabilities.SignalProcessSupported {
 					signalsSupported = true
 				}

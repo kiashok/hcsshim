@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 )
 
@@ -281,14 +281,14 @@ type containerSignalProcess struct {
 	Options   interface{} `json:",omitempty"`
 }
 
-type containerPropertiesQuery schema1.PropertyQuery
+type containerPropertiesQuery hcstypes.PropertyQuery
 
 func (q *containerPropertiesQuery) MarshalText() ([]byte, error) {
-	return json.Marshal((*schema1.PropertyQuery)(q))
+	return json.Marshal((*hcstypes.PropertyQuery)(q))
 }
 
 func (q *containerPropertiesQuery) UnmarshalText(b []byte) error {
-	return json.Unmarshal(b, (*schema1.PropertyQuery)(q))
+	return json.Unmarshal(b, (*hcstypes.PropertyQuery)(q))
 }
 
 type containerPropertiesQueryV2 hcsschema.PropertyQuery
@@ -321,7 +321,7 @@ type gcsCapabilities struct {
 	SendHostStartMessage       bool
 	HvSocketConfigOnStartup    bool
 	SendLifecycleNotifications bool
-	SupportedSchemaVersions    []hcsschema.Version
+	SupportedSchemaVersions    []hcstypes.Version
 	RuntimeOsType              string
 	GuestDefinedCapabilities   json.RawMessage
 }
@@ -340,14 +340,14 @@ type containerWaitForProcessResponse struct {
 	ExitCode uint32
 }
 
-type containerProperties schema1.ContainerProperties
+type containerProperties hcstypes.ContainerProperties
 
 func (p *containerProperties) MarshalText() ([]byte, error) {
-	return json.Marshal((*schema1.ContainerProperties)(p))
+	return json.Marshal((*hcstypes.ContainerProperties)(p))
 }
 
 func (p *containerProperties) UnmarshalText(b []byte) error {
-	return json.Unmarshal(b, (*schema1.ContainerProperties)(p))
+	return json.Unmarshal(b, (*hcstypes.ContainerProperties)(p))
 }
 
 type containerPropertiesV2 hcsschema.Properties

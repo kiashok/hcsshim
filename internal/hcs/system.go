@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 	"github.com/Microsoft/hcsshim/internal/cow"
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/jobobject"
 	"github.com/Microsoft/hcsshim/internal/log"
@@ -165,7 +165,7 @@ func (computeSystem *System) IsOCI() bool {
 }
 
 // GetComputeSystems gets a list of the compute systems on the system that match the query
-func GetComputeSystems(ctx context.Context, q schema1.ComputeSystemQuery) ([]schema1.ContainerProperties, error) {
+func GetComputeSystems(ctx context.Context, q hcstypes.ComputeSystemQuery) ([]hcstypes.ContainerProperties, error) {
 	operation := "hcs::GetComputeSystems"
 
 	queryb, err := json.Marshal(q)
@@ -182,7 +182,7 @@ func GetComputeSystems(ctx context.Context, q schema1.ComputeSystemQuery) ([]sch
 	if computeSystemsJSON == "" {
 		return nil, ErrUnexpectedValue
 	}
-	computeSystems := []schema1.ContainerProperties{}
+	computeSystems := []hcstypes.ContainerProperties{}
 	if err = json.Unmarshal([]byte(computeSystemsJSON), &computeSystems); err != nil {
 		return nil, err
 	}
@@ -344,7 +344,7 @@ func (computeSystem *System) ExitError() error {
 }
 
 // Properties returns the requested container properties targeting a V1 schema container.
-func (computeSystem *System) Properties(ctx context.Context, types ...schema1.PropertyType) (*schema1.ContainerProperties, error) {
+func (computeSystem *System) Properties(ctx context.Context, types ...hcstypes.PropertyType) (*hcstypes.ContainerProperties, error) {
 	computeSystem.handleLock.RLock()
 	defer computeSystem.handleLock.RUnlock()
 
@@ -354,7 +354,7 @@ func (computeSystem *System) Properties(ctx context.Context, types ...schema1.Pr
 		return nil, makeSystemError(computeSystem, operation, ErrAlreadyClosed, nil)
 	}
 
-	queryBytes, err := json.Marshal(schema1.PropertyQuery{PropertyTypes: types})
+	queryBytes, err := json.Marshal(hcstypes.PropertyQuery{PropertyTypes: types})
 	if err != nil {
 		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
@@ -368,7 +368,7 @@ func (computeSystem *System) Properties(ctx context.Context, types ...schema1.Pr
 	if propertiesJSON == "" {
 		return nil, ErrUnexpectedValue
 	}
-	properties := &schema1.ContainerProperties{}
+	properties := &hcstypes.ContainerProperties{}
 	if err := json.Unmarshal([]byte(propertiesJSON), properties); err != nil {
 		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
@@ -679,7 +679,7 @@ func (computeSystem *System) createProcess(ctx context.Context, operation string
 	if err != nil {
 		if v2, ok := c.(*hcsschema.ProcessParameters); ok {
 			operation += ": " + v2.CommandLine
-		} else if v1, ok := c.(*schema1.ProcessConfig); ok {
+		} else if v1, ok := c.(*hcstypes.ProcessConfig); ok {
 			operation += ": " + v1.CommandLine
 		}
 		return nil, nil, makeSystemError(computeSystem, operation, err, events)

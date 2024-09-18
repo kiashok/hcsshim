@@ -9,51 +9,51 @@ import (
 	"sync"
 	"time"
 
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 	"github.com/Microsoft/hcsshim/internal/hcs"
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	"github.com/Microsoft/hcsshim/internal/mergemaps"
 )
 
 // ContainerProperties holds the properties for a container and the processes running in that container
-type ContainerProperties = schema1.ContainerProperties
+type ContainerProperties = hcstypes.ContainerProperties
 
 // MemoryStats holds the memory statistics for a container
-type MemoryStats = schema1.MemoryStats
+type MemoryStats = hcstypes.MemoryStats
 
 // ProcessorStats holds the processor statistics for a container
-type ProcessorStats = schema1.ProcessorStats
+type ProcessorStats = hcstypes.ProcessorStats
 
 // StorageStats holds the storage statistics for a container
-type StorageStats = schema1.StorageStats
+type StorageStats = hcstypes.StorageStats
 
 // NetworkStats holds the network statistics for a container
-type NetworkStats = schema1.NetworkStats
+type NetworkStats = hcstypes.NetworkStats
 
 // Statistics is the structure returned by a statistics call on a container
-type Statistics = schema1.Statistics
+type Statistics = hcstypes.Statistics
 
 // ProcessList is the structure of an item returned by a ProcessList call on a container
-type ProcessListItem = schema1.ProcessListItem
+type ProcessListItem = hcstypes.ProcessListItem
 
 // MappedVirtualDiskController is the structure of an item returned by a MappedVirtualDiskList call on a container
-type MappedVirtualDiskController = schema1.MappedVirtualDiskController
+type MappedVirtualDiskController = hcstypes.MappedVirtualDiskController
 
 // Type of Request Support in ModifySystem
-type RequestType = schema1.RequestType
+type RequestType = hcstypes.RequestType
 
 // Type of Resource Support in ModifySystem
-type ResourceType = schema1.ResourceType
+type ResourceType = hcstypes.ResourceType
 
 // RequestType const
 const (
-	Add     = schema1.Add
-	Remove  = schema1.Remove
-	Network = schema1.Network
+	Add     = hcstypes.Add
+	Remove  = hcstypes.Remove
+	Network = hcstypes.Network
 )
 
 // ResourceModificationRequestResponse is the structure used to send request to the container to modify the system
 // Supported resource types are Network and Request Types are Add/Remove
-type ResourceModificationRequestResponse = schema1.ResourceModificationRequestResponse
+type ResourceModificationRequestResponse = hcstypes.ResourceModificationRequestResponse
 
 type container struct {
 	system   *hcs.System
@@ -168,7 +168,7 @@ func (container *container) HasPendingUpdates() (bool, error) {
 
 // Statistics returns statistics for the container. This is a legacy v1 call
 func (container *container) Statistics() (Statistics, error) {
-	properties, err := container.system.Properties(context.Background(), schema1.PropertyTypeStatistics)
+	properties, err := container.system.Properties(context.Background(), hcstypes.PropertyTypeStatistics)
 	if err != nil {
 		return Statistics{}, convertSystemError(err, container)
 	}
@@ -178,7 +178,7 @@ func (container *container) Statistics() (Statistics, error) {
 
 // ProcessList returns an array of ProcessListItems for the container. This is a legacy v1 call
 func (container *container) ProcessList() ([]ProcessListItem, error) {
-	properties, err := container.system.Properties(context.Background(), schema1.PropertyTypeProcessList)
+	properties, err := container.system.Properties(context.Background(), hcstypes.PropertyTypeProcessList)
 	if err != nil {
 		return nil, convertSystemError(err, container)
 	}
@@ -188,7 +188,7 @@ func (container *container) ProcessList() ([]ProcessListItem, error) {
 
 // This is a legacy v1 call
 func (container *container) MappedVirtualDisks() (map[int]MappedVirtualDiskController, error) {
-	properties, err := container.system.Properties(context.Background(), schema1.PropertyTypeMappedVirtualDisk)
+	properties, err := container.system.Properties(context.Background(), hcstypes.PropertyTypeMappedVirtualDisk)
 	if err != nil {
 		return nil, convertSystemError(err, container)
 	}

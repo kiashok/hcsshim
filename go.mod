@@ -1,11 +1,12 @@
 module github.com/Microsoft/hcsshim
 
-go 1.21
+go 1.21.5
 
 require (
 	github.com/Microsoft/cosesign1go v1.2.0
 	github.com/Microsoft/didx509go v0.0.3
 	github.com/Microsoft/go-winio v0.6.2
+	github.com/Microsoft/hcsshim/hcs v0.0.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/containerd/cgroups/v3 v3.0.3
@@ -91,7 +92,6 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.20.2 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.55.0 // indirect
@@ -120,3 +120,5 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
+
+replace github.com/Microsoft/hcsshim/hcs => ./hcs

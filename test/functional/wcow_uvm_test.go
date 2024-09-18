@@ -14,8 +14,8 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 
 	"github.com/Microsoft/hcsshim"
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 	"github.com/Microsoft/hcsshim/internal/cow"
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	"github.com/Microsoft/hcsshim/internal/hcsoci"
 	layerspkg "github.com/Microsoft/hcsshim/internal/layers"
 	"github.com/Microsoft/hcsshim/internal/resources"
@@ -307,7 +307,7 @@ func runHcsCommand(t *testing.T,
 	}
 	p, err := c.CreateProcess(
 		context.Background(),
-		&schema1.ProcessConfig{
+		&hcstypes.ProcessConfig{
 			CommandLine:      command,
 			WorkingDirectory: workdir,
 			CreateStdInPipe:  true,
@@ -401,7 +401,7 @@ func TestWCOWArgonShim(t *testing.T) {
 		VolumePath:      mountedLayers.RootFS,
 		LayerFolderPath: argonShimScratchDir,
 		Layers:          layers,
-		MappedDirectories: []schema1.MappedDir{
+		MappedDirectories: []hcstypes.MappedDir{
 			{
 				HostPath:      hostROSharedDirectory,
 				ContainerPath: `c:\mappedro`,
@@ -457,7 +457,7 @@ func TestWCOWXenonShim(t *testing.T) {
 		Layers:          layers,
 		HvRuntime:       &hcsshim.HvRuntime{ImagePath: filepath.Join(uvmImagePath, "UtilityVM")},
 		HvPartition:     true,
-		MappedDirectories: []schema1.MappedDir{
+		MappedDirectories: []hcstypes.MappedDir{
 			{
 				HostPath:      hostROSharedDirectory,
 				ContainerPath: `c:\mappedro`,

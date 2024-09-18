@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
+	hcsschema "github.com/Microsoft/hcsshim/hcs/internal/schema2"
 )
 
 // ProcessConfig is used as both the input of Container.CreateProcess
@@ -119,13 +119,16 @@ type ComputeSystemQuery struct {
 
 type PropertyType string
 
+/*
 const (
+
 	PropertyTypeStatistics        PropertyType = "Statistics"        // V1 and V2
 	PropertyTypeProcessList       PropertyType = "ProcessList"       // V1 and V2
 	PropertyTypeMappedVirtualDisk PropertyType = "MappedVirtualDisk" // Not supported in V2 schema call
 	PropertyTypeGuestConnection   PropertyType = "GuestConnection"   // V1 and V2. Nil return from HCS before RS5
-)
 
+)
+*/
 type PropertyQuery struct {
 	PropertyTypes []PropertyType `json:",omitempty"`
 }

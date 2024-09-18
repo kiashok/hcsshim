@@ -6,29 +6,29 @@ import (
 	"io"
 	"time"
 
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 )
 
 // ProcessConfig is used as both the input of Container.CreateProcess
 // and to convert the parameters to JSON for passing onto the HCS
-type ProcessConfig = schema1.ProcessConfig
+type ProcessConfig = hcstypes.ProcessConfig
 
-type Layer = schema1.Layer
-type MappedDir = schema1.MappedDir
-type MappedPipe = schema1.MappedPipe
-type HvRuntime = schema1.HvRuntime
-type MappedVirtualDisk = schema1.MappedVirtualDisk
+type Layer = hcstypes.Layer
+type MappedDir = hcstypes.MappedDir
+type MappedPipe = hcstypes.MappedPipe
+type HvRuntime = hcstypes.HvRuntime
+type MappedVirtualDisk = hcstypes.MappedVirtualDisk
 
 // AssignedDevice represents a device that has been directly assigned to a container
 //
 // NOTE: Support added in RS5
-type AssignedDevice = schema1.AssignedDevice
+type AssignedDevice = hcstypes.AssignedDevice
 
 // ContainerConfig is used as both the input of CreateContainer
 // and to convert the parameters to JSON for passing onto the HCS
-type ContainerConfig = schema1.ContainerConfig
+type ContainerConfig = hcstypes.ContainerConfig
 
-type ComputeSystemQuery = schema1.ComputeSystemQuery
+type ComputeSystemQuery = hcstypes.ComputeSystemQuery
 
 // Container represents a created (but not necessarily running) container.
 type Container interface {

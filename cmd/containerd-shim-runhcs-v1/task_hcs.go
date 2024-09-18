@@ -26,12 +26,12 @@ import (
 	"github.com/Microsoft/go-winio/pkg/fs"
 	runhcsopts "github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
 	"github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/stats"
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 	"github.com/Microsoft/hcsshim/internal/cmd"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestpath"
 	"github.com/Microsoft/hcsshim/internal/hcs"
 	"github.com/Microsoft/hcsshim/internal/hcs/resourcepaths"
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/hcsoci"
 	"github.com/Microsoft/hcsshim/internal/jobcontainers"
@@ -570,7 +570,7 @@ func (ht *hcsTask) Pids(ctx context.Context) ([]*runhcsopts.ProcessDetails, erro
 	pidMap[ht.init.Pid()] = ht.init.ID()
 
 	// Get the guest pids
-	props, err := ht.c.Properties(ctx, schema1.PropertyTypeProcessList)
+	props, err := ht.c.Properties(ctx, hcstypes.PropertyTypeProcessList)
 	if err != nil {
 		if isStatsNotFound(err) {
 			return nil, errors.Wrapf(errdefs.ErrNotFound, "failed to fetch pids: %s", err)

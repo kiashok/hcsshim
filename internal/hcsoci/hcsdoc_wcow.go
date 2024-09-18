@@ -17,8 +17,8 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 	"github.com/Microsoft/hcsshim/internal/guestpath"
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oci"
@@ -34,8 +34,8 @@ const createContainerSubdirectoryForProcessDumpSuffix = "{container_id}"
 // A simple wrapper struct around the container mount configs that should be added to the
 // container.
 type mountsConfig struct {
-	mdsv1 []schema1.MappedDir
-	mpsv1 []schema1.MappedPipe
+	mdsv1 []hcstypes.MappedDir
+	mpsv1 []hcstypes.MappedPipe
 	mdsv2 []hcsschema.MappedDirectory
 	mpsv2 []hcsschema.MappedPipe
 }
@@ -47,7 +47,7 @@ func createMountsConfig(ctx context.Context, coi *createOptionsInternal) (*mount
 	for _, mount := range coi.Spec.Mounts {
 		if uvm.IsPipe(mount.Source) {
 			src, dst := uvm.GetContainerPipeMapping(coi.HostingSystem, mount)
-			config.mpsv1 = append(config.mpsv1, schema1.MappedPipe{HostPath: src, ContainerPipeName: dst})
+			config.mpsv1 = append(config.mpsv1, hcstypes.MappedPipe{HostPath: src, ContainerPipeName: dst})
 			config.mpsv2 = append(config.mpsv2, hcsschema.MappedPipe{HostPath: src, ContainerPipeName: dst})
 		} else {
 			readOnly := false
@@ -56,7 +56,7 @@ func createMountsConfig(ctx context.Context, coi *createOptionsInternal) (*mount
 					readOnly = true
 				}
 			}
-			mdv1 := schema1.MappedDir{HostPath: mount.Source, ContainerPath: mount.Destination, ReadOnly: readOnly}
+			mdv1 := hcstypes.MappedDir{HostPath: mount.Source, ContainerPath: mount.Destination, ReadOnly: readOnly}
 			mdv2 := hcsschema.MappedDirectory{ContainerPath: mount.Destination, ReadOnly: readOnly}
 			if coi.HostingSystem == nil {
 				// HCS has a bug where it does not correctly resolve file (not dir) paths
@@ -136,7 +136,7 @@ func ConvertCPULimits(ctx context.Context, cid string, spec *specs.Spec, maxCPUC
 // createWindowsContainerDocument creates documents for passing to HCS or GCS to create
 // a container, both hosted and process isolated. It creates both v1 and v2
 // container objects, WCOW only. The containers storage should have been mounted already.
-func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInternal) (*schema1.ContainerConfig, *hcsschema.Container, error) {
+func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInternal) (*hcstypes.ContainerConfig, *hcsschema.Container, error) {
 	log.G(ctx).Debug("hcsshim: CreateHCSContainerDocument")
 	// TODO: Make this safe if exported so no null pointer dereferences.
 
@@ -148,7 +148,7 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 		return nil, nil, fmt.Errorf("cannot create HCS container document - OCI spec Windows section is missing ")
 	}
 
-	v1 := &schema1.ContainerConfig{
+	v1 := &hcstypes.ContainerConfig{
 		SystemType:              "Container",
 		Name:                    coi.actualID,
 		Owner:                   coi.actualOwner,
@@ -326,7 +326,7 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 		}
 		if coi.Spec.Windows.HyperV.UtilityVMPath != "" {
 			// Client-supplied utility VM path
-			v1.HvRuntime = &schema1.HvRuntime{ImagePath: coi.Spec.Windows.HyperV.UtilityVMPath}
+			v1.HvRuntime = &hcstypes.HvRuntime{ImagePath: coi.Spec.Windows.HyperV.UtilityVMPath}
 		} else {
 			// Client was lazy. Let's locate it from the layer folders instead.
 			// We are using v1xenon so we can't be using CimFS layers, that
@@ -340,7 +340,7 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 			if err != nil {
 				return nil, nil, err
 			}
-			v1.HvRuntime = &schema1.HvRuntime{ImagePath: filepath.Join(uvmImagePath, `UtilityVM`)}
+			v1.HvRuntime = &hcstypes.HvRuntime{ImagePath: filepath.Join(uvmImagePath, `UtilityVM`)}
 		}
 	} else if coi.isV2Xenon() {
 		// Hosting system was supplied, so is v2 Xenon.
@@ -359,7 +359,7 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 
 	if coi.isV2Argon() || coi.isV1Argon() { // Argon v1 or v2
 		for _, ml := range coi.mountedWCOWLayers.MountedLayerPaths {
-			v1.Layers = append(v1.Layers, schema1.Layer{ID: ml.LayerID, Path: ml.MountedPath})
+			v1.Layers = append(v1.Layers, hcstypes.Layer{ID: ml.LayerID, Path: ml.MountedPath})
 			v2Container.Storage.Layers = append(v2Container.Storage.Layers, hcsschema.Layer{
 				Id:   ml.LayerID,
 				Path: ml.MountedPath,

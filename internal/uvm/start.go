@@ -17,9 +17,9 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/windows"
 
+	hcstypes "github.com/Microsoft/hcsshim/hcs"
 	"github.com/Microsoft/hcsshim/internal/gcs"
 	"github.com/Microsoft/hcsshim/internal/hcs"
-	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/logfields"
@@ -291,7 +291,7 @@ func (uvm *UtilityVM) Start(ctx context.Context) (err error) {
 		}
 	} else {
 		// Cache the guest connection properties.
-		properties, err := uvm.hcsSystem.Properties(ctx, schema1.PropertyTypeGuestConnection)
+		properties, err := uvm.hcsSystem.Properties(ctx, hcstypes.PropertyTypeGuestConnection)
 		if err != nil {
 			return err
 		}
