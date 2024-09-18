@@ -87,6 +87,9 @@ const (
 	// The content of these are added to a container's hcs create document.
 	DeviceExtensions = "io.microsoft.container.wcow.deviceextensions"
 
+	// hyperv wcow annotation for starting the hcs sidecar
+	WindowsGcsSidecar = "microsoft.com/c-wcow"
+
 	// HostProcessInheritUser indicates whether to ignore the username passed in to run a host process
 	// container as and instead inherit the user token from the executable that is launching the container process.
 	HostProcessInheritUser = "microsoft.com/hostprocess-inherit-user"
