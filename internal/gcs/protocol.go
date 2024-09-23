@@ -33,6 +33,14 @@ var HV_GUID_PARENT = guid.GUID{
 	Data4: [8]uint8{0x9c, 0xc2, 0xa4, 0xde, 0x20, 0xab, 0xb8, 0x78},
 }
 
+// e0e16197-dd56-4a10-9195-5ee7a155a838
+var HV_GUID_LOOPBACK = guid.GUID{
+	Data1: 0xe0e16197,
+	Data2: 0xdd56,
+	Data3: 0x4a10,
+	Data4: [8]uint8{0x91, 0x95, 0x5e, 0xe7, 0xa1, 0x55, 0xa8, 0x38},
+}
+
 // WindowsGcsHvHostID is the hvsock address for the parent of the VM running the GCS
 var WindowsGcsHvHostID = guid.GUID{
 	Data1: 0x894cc2d6,
