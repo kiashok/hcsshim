@@ -20,26 +20,36 @@ var WindowsSidecarGcsHvsockServiceID = guid.GUID{
 }
 
 func handleRequest(conn net.Conn) {
+	log.Printf("Sending reply \n")
 	for {
-		buffer := make([]byte, 1024)
+		/*
+			buffer := make([]byte, 1024)
 
-		// use bufio.Scanner
-		length, err := conn.Read(buffer)
+			// use bufio.Scanner
+			length, err := conn.Read(buffer)
+			if err != nil {
+				//log.Panicln(err)
+				errString := fmt.Sprintf("%s", err)
+				if !strings.Contains(errString, "EOF") {
+					log.Printf("error reading %s", err)
+				} else {
+					continue
+				}
+			}
+
+			str := string(buffer[:length])
+			log.Printf("Received command %d\t:%s\n", length, str)
+		*/
+
+		str := "kirtana:"
+		strreply := fmt.Sprintf("I got %s", str)
+		_, err := conn.Write([]byte(strreply + "\n"))
 		if err != nil {
-			//log.Panicln(err)
 			errString := fmt.Sprintf("%s", err)
 			if !strings.Contains(errString, "EOF") {
-				log.Printf("error reading %s", err)
-			} else {
-				continue
+				log.Printf("error sending reply %s", err)
 			}
 		}
-
-		str := string(buffer[:length])
-		log.Printf("Received command %d\t:%s\n", length, str)
-
-		strreply := fmt.Sprintf("I got %s", str)
-		conn.Write([]byte(strreply + "\n"))
 
 	}
 }

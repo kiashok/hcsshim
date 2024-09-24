@@ -40,15 +40,20 @@ type handler struct {
 func (hv *hvSockDetails) startRecvAndSendLoop() {
 	log.Printf("Starting startRecvAndSendLoop() with %v", hv)
 	ctx := context.Background()
-	hvsockCon, err := hv.hvsockDialer.Dial(ctx, hv.hvsockAddr)
+	hvsockCon, err := winio.Dial(ctx, hv.hvsockAddr)
 	if err != nil {
 		// error dialing the address
 		log.Printf("Error dialing hvsock sidecar listener at address %v", hv.hvsockAddr)
 		return
 	}
 
-	go sendToHvSocketListener(hvsockCon)
+	//var wg sync.WaitGroup
+	//wg.Add(1)
+	//	go
+	recvLoop(hvsockCon)
+	//sendToHvSocketListener(hvsockCon)
 
+	//wg.Wait()
 	// TODO: start the server for GCS bridge client to connect to.
 	// 1. use named pipes for communication
 	// Another option would be to use hvsocket with loopback address
@@ -65,13 +70,36 @@ func (hv *hvSockDetails) startRecvAndSendLoop() {
 	*/
 }
 
+func recvLoop(hvsockCon *winio.HvsockConn) {
+	//, wg *sync.WaitGroup) {
+	//defer wg.Done()
+	log.Printf("Receive loop with hvsockConn %v", hvsockCon)
+	// write data
+	//var conn net.Conn
+	//conn =
+	//winio.Dial(context.Background(), hvsockCon.RemoteAddr())
+	buffer := make([]byte, 1024)
+	for {
+		length, err := hvsockCon.Read(buffer)
+		if err != nil {
+			log.Printf("!! Error reading from server with err %v", err)
+			return
+		}
+		// any delay
+		str := string(buffer[:length])
+		log.Printf("Received command %d\t:%s\n", length, str)
+	}
+	//return
+}
+
 func sendToHvSocketListener(hvsockCon *winio.HvsockConn) {
+	//defer wg.Done()
 	log.Printf("Starting sendToHvSocketListener() with connection %v", hvsockCon)
 	// write data
 	for {
 		_, err := hvsockCon.Write([]byte(fmt.Sprintf("!! Hello from sidecar GCS at time %v \n", time.Now())))
 		if err != nil {
-			log.Printf("!! Error writing to sidecar GCS at time %v", time.Now())
+			log.Printf("!! Error writing to sidecar GCS with error %v", err)
 			return
 		}
 		// any delay
