@@ -41,15 +41,32 @@ func handleRequest(conn net.Conn) {
 			log.Printf("Received command %d\t:%s\n", length, str)
 		*/
 
-		str := "kirtana:"
-		strreply := fmt.Sprintf("I got %s", str)
-		_, err := conn.Write([]byte(strreply + "\n"))
+		str := "CreateContainer request"
+		//strreply := fmt.Sprintf("I got %s", str)
+		_, err := conn.Write([]byte(str + "\n"))
 		if err != nil {
 			errString := fmt.Sprintf("%s", err)
 			if !strings.Contains(errString, "EOF") {
 				log.Printf("error sending reply %s", err)
 			}
 		}
+
+		buffer := make([]byte, 1024)
+
+		// use bufio.Scanner
+		length, err := conn.Read(buffer)
+		if err != nil {
+			//log.Panicln(err)
+			errString := fmt.Sprintf("%s", err)
+			if !strings.Contains(errString, "EOF") {
+				log.Printf("error reading %s", err)
+			} else {
+				continue
+			}
+		}
+
+		strResp := string(buffer[:length])
+		log.Printf("Received response on server side:  %d\t:%s\n", length, strResp)
 
 	}
 }

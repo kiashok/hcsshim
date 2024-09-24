@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Microsoft/go-winio"
@@ -28,8 +29,8 @@ var WindowsSidecarGcsHvsockServiceID = guid.GUID{
 // ae8da506-a019-4553-a52b-902bc0fa0411
 
 type hvSockDetails struct {
-	hvsockAddr   *winio.HvsockAddr
-	hvsockDialer *winio.HvsockDialer
+	hvsockAddr *winio.HvsockAddr
+	//hvsockDialer *winio.HvsockDialer
 }
 
 type handler struct {
@@ -38,7 +39,7 @@ type handler struct {
 }
 
 func (hv *hvSockDetails) startRecvAndSendLoop() {
-	log.Printf("Starting startRecvAndSendLoop() with %v", hv)
+	log.Printf("Starting startRecvAndSendLoop()\n")
 	ctx := context.Background()
 	hvsockCon, err := winio.Dial(ctx, hv.hvsockAddr)
 	if err != nil {
@@ -51,7 +52,7 @@ func (hv *hvSockDetails) startRecvAndSendLoop() {
 	//wg.Add(1)
 	//	go
 	recvLoop(hvsockCon)
-	//sendToHvSocketListener(hvsockCon)
+	//go sendToHvSocketListener(hvsockCon)
 
 	//wg.Wait()
 	// TODO: start the server for GCS bridge client to connect to.
@@ -73,28 +74,38 @@ func (hv *hvSockDetails) startRecvAndSendLoop() {
 func recvLoop(hvsockCon *winio.HvsockConn) {
 	//, wg *sync.WaitGroup) {
 	//defer wg.Done()
-	log.Printf("Receive loop with hvsockConn %v", hvsockCon)
-	// write data
-	//var conn net.Conn
-	//conn =
-	//winio.Dial(context.Background(), hvsockCon.RemoteAddr())
+	log.Printf("Receive loop \n")
 	buffer := make([]byte, 1024)
+
 	for {
 		length, err := hvsockCon.Read(buffer)
 		if err != nil {
-			log.Printf("!! Error reading from server with err %v", err)
+			log.Printf("Error reading from hvsock with err %v", err)
 			return
 		}
-		// any delay
+
 		str := string(buffer[:length])
 		log.Printf("Received command %d\t:%s\n", length, str)
+
+		if strings.HasPrefix(str, "CreateContainer") {
+			_, err := hvsockCon.Write([]byte(fmt.Sprintf("!! ACK CreateContainer request at time %v \n", time.Now())))
+			if err != nil {
+				log.Printf("!! Error writing CreateContainer response from sidecar GCS with error %v", err)
+				return
+			}
+		} else if strings.HasPrefix(str, "MountVolume") {
+			_, err := hvsockCon.Write([]byte(fmt.Sprintf("!! ACK MountVolume request at time %v \n", time.Now())))
+			if err != nil {
+				log.Printf("!! Error writing MountVolume response from sidecar GCS with error %v", err)
+				return
+			}
+		}
 	}
-	//return
 }
 
 func sendToHvSocketListener(hvsockCon *winio.HvsockConn) {
 	//defer wg.Done()
-	log.Printf("Starting sendToHvSocketListener() with connection %v", hvsockCon)
+	log.Printf("Starting SendLoop() \n")
 	// write data
 	for {
 		_, err := hvsockCon.Write([]byte(fmt.Sprintf("!! Hello from sidecar GCS at time %v \n", time.Now())))
@@ -150,8 +161,8 @@ loop:
 func runService(name string, isDebug bool, hvsockAddr *winio.HvsockAddr, hvsockDialer *winio.HvsockDialer) error {
 	h := &handler{
 		hvsockAddrAndDialer: &hvSockDetails{
-			hvsockAddr:   hvsockAddr,
-			hvsockDialer: hvsockDialer,
+			hvsockAddr: hvsockAddr,
+			//	hvsockDialer: hvsockDialer,
 		},
 		fromsvc: make(chan error),
 	}
@@ -214,19 +225,20 @@ func main() {
 			ServiceID: WindowsSidecarGcsHvsockServiceID,
 		}
 
-		hcsockDialer := &winio.HvsockDialer{
-			Deadline:  time.Now().Add(10 * time.Minute),
-			Retries:   1000,
-			RetryWait: time.Second,
-		}
-
-		if err := runService("gcs-sidecar", false, hvsockAddr, hcsockDialer); err != nil {
+		/*
+			hcsockDialer := &winio.HvsockDialer{
+				Deadline:  time.Now().Add(10 * time.Minute),
+				Retries:   1000,
+				RetryWait: time.Second,
+			}
+		*/
+		if err := runService("gcs-sidecar", false, hvsockAddr, nil); err != nil {
 			log.Fatal(err)
 		}
 
 		//hv := &hvSockDetails{hvsockAddr: hvsockAddr, hvsockDialer: hcsockDialer}
 		select {
-		case chsrv <- srvResp{srvDetails: &hvSockDetails{hvsockAddr: hvsockAddr, hvsockDialer: hcsockDialer}}:
+		case chsrv <- srvResp{srvDetails: &hvSockDetails{hvsockAddr: hvsockAddr}}:
 		}
 	}()
 
