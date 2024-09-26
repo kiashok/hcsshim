@@ -221,7 +221,7 @@ func main() {
 		defer close(chsrv)
 
 		hvsockAddr := &winio.HvsockAddr{
-			VMID:      gcs.HV_GUID_LOOPBACK, // HV_GUID_PARENT
+			VMID:      gcs.HV_GUID_PARENT, //gcs.HV_GUID_LOOPBACK, // HV_GUID_PARENT
 			ServiceID: WindowsSidecarGcsHvsockServiceID,
 		}
 
