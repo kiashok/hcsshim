@@ -162,7 +162,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 					Hive: "System",
 					Name: "CurrentControlSet\\Services\\gcs-sidecar",
 				},
-				Name:       "Start",
+				Name:       "ErrorControl",
 				DWordValue: 1,
 				Type_:      "DWord",
 			},
@@ -174,6 +174,33 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 				Name:        "ImagePath",
 				StringValue: "C:\\Windows\\System32\\gcs-sidecar.exe",
 				Type_:       "String",
+			},
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				},
+				Name:        "ObjectName",
+				StringValue: "LocalSystem",
+				Type_:       "String",
+			},
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				},
+				Name:       "Start",
+				DWordValue: 2,
+				Type_:      "DWord",
+			},
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				},
+				Name:       "Type",
+				DWordValue: 16,
+				Type_:      "DWord",
 			},
 		)
 	}

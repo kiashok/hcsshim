@@ -214,9 +214,23 @@ func (w *baseLayerWriter) Close() (err error) {
 			dstPath = filepath.Join(w.root.Name(), "UtilityVM", "Files", "Windows", "System32", filepath.Base(sourcePath))
 			err = copyfile.CopyFile(w.ctx, sourcePath, dstPath, true)
 			if err != nil {
-				return fmt.Errorf("err copying sc.exe into GCS %v", err)
+				return fmt.Errorf("err copying net.exe into GCS %v", err)
 			}
+			/*
+				sourcePath = filepath.Join("C:\\", "Users", "kiashok", "cc-images", "vmcompute.exe")
+				dstPath = filepath.Join(w.root.Name(), "UtilityVM", "Files", "Windows", "System32", filepath.Base(sourcePath))
+				err = copyfile.CopyFile(w.ctx, sourcePath, dstPath, true)
+				if err != nil {
+					return fmt.Errorf("err copying sc.exe into GCS %v", err)
+				}
 
+				sourcePath = filepath.Join("C:\\", "Users", "kiashok", "cc-images", "VmComputeAgent.exe")
+				dstPath = filepath.Join(w.root.Name(), "UtilityVM", "Files", "Windows", "System32", filepath.Base(sourcePath))
+				err = copyfile.CopyFile(w.ctx, sourcePath, dstPath, true)
+				if err != nil {
+					return fmt.Errorf("err copying sc.exe into GCS %v", err)
+				}
+			*/
 			err = ProcessUtilityVMImage(w.ctx, filepath.Join(w.root.Name(), "UtilityVM"))
 			if err != nil {
 				return err
