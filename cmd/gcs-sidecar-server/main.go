@@ -11,12 +11,12 @@ import (
 	"github.com/Microsoft/go-winio/pkg/guid"
 )
 
-// 4A02C354-EAEA-5AE8-A0B6-6CFF3763407F,
+// 2E83DEBE-805B-5649-8DE8-5CE2F5B8055B,
 var vmid = guid.GUID{
-	Data1: 0x4A02C354,
-	Data2: 0xEAEA,
-	Data3: 0x5AE8,
-	Data4: [8]uint8{0xA0, 0xB6, 0x6C, 0xFF, 0x37, 0x63, 0x40, 0x7F},
+	Data1: 0x2E83DEBE,
+	Data2: 0x805B,
+	Data3: 0x5649,
+	Data4: [8]uint8{0x8D, 0xE8, 0x5C, 0xE2, 0xF5, 0xB8, 0x05, 0x5B},
 }
 
 var WindowsSidecarGcsHvsockServiceID = guid.GUID{

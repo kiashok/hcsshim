@@ -20,6 +20,14 @@ var WindowsSidecarGcsHvsockServiceID = guid.GUID{
 	Data4: [8]uint8{0xa5, 0x2b, 0x90, 0x2b, 0xc0, 0xfa, 0x04, 0x11},
 }
 
+// fdb52da4-d1ce-4706-b990-bc20fe25b793
+var TestWindowsGcsHvsockServiceID = guid.GUID{
+	Data1: 0xfdb52da4,
+	Data2: 0xd1ce,
+	Data3: 0x4706,
+	Data4: [8]uint8{0xb9, 0x90, 0xbc, 0x20, 0xfe, 0x25, 0xb7, 0x93},
+}
+
 func handleRequest(conn net.Conn) {
 	log.Printf("Sending reply \n")
 	for {
@@ -72,12 +80,11 @@ func handleRequest(conn net.Conn) {
 	}
 }
 
-// fdb52da4-d1ce-4706-b990-bc20fe25b793
-var TestWindowsGcsHvsockServiceID = guid.GUID{
-	Data1: 0xfdb52da4,
-	Data2: 0xd1ce,
-	Data3: 0x4706,
-	Data4: [8]uint8{0xb9, 0x90, 0xbc, 0x20, 0xfe, 0x25, 0xb7, 0x93},
+var WindowsGcsHvsockServiceID = guid.GUID{
+	Data1: 0xacef5661,
+	Data2: 0x84a1,
+	Data3: 0x4e44,
+	Data4: [8]uint8{0x85, 0x6b, 0x62, 0x45, 0xe6, 0x9f, 0x46, 0x20},
 }
 
 // e0e16197-dd56-4a10-9195-5ee7a155a838
@@ -97,7 +104,7 @@ var HV_GUID_PARENT = guid.GUID{
 }
 
 func main() {
-	f, err := os.OpenFile("C:\\test-gcs-client2.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile("C:\\test-inbox-gcs.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalln(fmt.Errorf("error opening file: %v", err))
 	}
@@ -107,8 +114,8 @@ func main() {
 
 	// 1. Connect to client
 	hvsockAddr := &winio.HvsockAddr{
-		VMID:      HV_GUID_PARENT,
-		ServiceID: WindowsSidecarGcsHvsockServiceID,
+		VMID:      HV_GUID_LOOPBACK,
+		ServiceID: TestWindowsGcsHvsockServiceID,
 	}
 
 	ctx := context.Background()
@@ -121,40 +128,10 @@ func main() {
 		return
 	}
 
-	// 2.
-
-	serverListener, err := winio.ListenHvsock(&winio.HvsockAddr{
-		VMID: HV_GUID_LOOPBACK,
-		//HV_GUID_SILOHOST,
-		//HV_GUID_PARENT,
-		//HV_GUID_LOOPBACK,
-		ServiceID: TestWindowsGcsHvsockServiceID,
-	})
-	if err != nil {
-		log.Printf("Error to start server for sidecar <-> inbox gcs communication")
-		return
-	}
-
-	var sidecarGcsListener net.Listener
-	sidecarGcsListener = serverListener
-
-	// accept connection
-	//conn, err = listener.Accept()
-	log.Printf("Waiting for service connection from inbox GCS \n")
-	var serverCon net.Conn
-	//??? serverCon, err = acceptAndClose(ctx, sidecarGcsListener, hcsshimCon)
-	serverCon, err = sidecarGcsListener.Accept()
-	if err != nil {
-		log.Printf("Err accepting connection %v", err)
-		return
-	}
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 
 	go recvFromSidecarAndSendResponse(shimConn)
-
-	go recvFromGcsAndSendResponse(serverCon)
 
 	wg.Wait()
 	///
@@ -198,54 +175,9 @@ func recvFromSidecarAndSendResponse(gcsConn *winio.HvsockConn) {
 		}
 
 		str := string(buffer[:length])
-		replyString := fmt.Sprintf("hcsshim: Received command %s", str)
-		fmt.Printf("shimResponse: Received command %d\t:%s\n", length, str)
-
-		/*
-			if strings.HasPrefix(str, "CreateContainer") {
-				_, err := hvsockCon.Write([]byte(fmt.Sprintf("!! ACK CreateContainer request at time %v \n", time.Now())))
-				if err != nil {
-					log.Printf("!! Error writing CreateContainer response from sidecar GCS with error %v", err)
-					return
-				}
-			} else if strings.HasPrefix(str, "MountVolume") {
-				_, err := hvsockCon.Write([]byte(fmt.Sprintf("!! ACK MountVolume request at time %v \n", time.Now())))
-				if err != nil {
-					log.Printf("!! Error writing MountVolume response from sidecar GCS with error %v", err)
-					return
-				}
-			}
-		*/
-
-		_, err = gcsConn.Write([]byte(replyString))
-		if err != nil {
-			fmt.Printf("!! Error replying from gcs to sidecar with error %v", err)
-			return
-		}
-	}
-}
-
-func recvFromGcsAndSendResponse(gcsConn net.Conn) {
-	fmt.Printf("Receive loop \n")
-	buffer := make([]byte, 1024)
-
-	replyString := "hello from sidecar"
-	_, err := gcsConn.Write([]byte(replyString))
-	if err != nil {
-		fmt.Printf("!! Error replying from gcs to sidecar with error %v", err)
-		return
-	}
-
-	for {
-		length, err := gcsConn.Read(buffer)
-		if err != nil {
-			fmt.Printf("Error reading from inbox gcs with err %v", err)
-			return
-		}
-
-		str := string(buffer[:length])
-		replyString := fmt.Sprintf("InboxGCS: Received command %s", str)
-		fmt.Printf("InboxGCS response: Received command %d\t:%s\n", length, str)
+		log.Printf("sidecar: Received command %s", str)
+		replyString := fmt.Sprintf("sidecar: Received command %s", str)
+		fmt.Printf("sidecarResponse: Received command %d\t:%s\n", length, str)
 
 		/*
 			if strings.HasPrefix(str, "CreateContainer") {
