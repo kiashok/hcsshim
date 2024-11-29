@@ -55,7 +55,11 @@ func NewDefaultOptionsWCOW(id, owner string) *OptionsWCOW {
 }
 
 func (uvm *UtilityVM) startExternalGcsListener(ctx context.Context) error {
-	log.G(ctx).WithField("vmID", uvm.runtimeID).Debug("Using external GCS bridge")
+	log.G(ctx).WithField("vmID", uvm.runtimeID).Debugf("Using external GCS bridge")
+
+	str := fmt.Sprintf("Using external GCS bridge for vmID %v", uvm.runtimeID)
+	ctx, span := oc.StartSpan(ctx, str)
+	defer span.End()
 
 	l, err := winio.ListenHvsock(&winio.HvsockAddr{
 		VMID:      uvm.runtimeID,
