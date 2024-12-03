@@ -11,13 +11,52 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim/internal/gcs"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/debug"
 )
 
+type handler struct {
+	fromsvc chan error
+}
+
+// new guid for my service
+// ae8da506-a019-4553-a52b-902bc0fa0411
 var WindowsSidecarGcsHvsockServiceID = guid.GUID{
 	Data1: 0xae8da506,
 	Data2: 0xa019,
 	Data3: 0x4553,
 	Data4: [8]uint8{0xa5, 0x2b, 0x90, 0x2b, 0xc0, 0xfa, 0x04, 0x11},
+}
+
+// accepts new connection closes listener
+func acceptAndClose(ctx context.Context, l net.Listener) (net.Conn, error) {
+	var conn net.Conn
+	ch := make(chan error)
+	go func() {
+		var err error
+		conn, err = l.Accept()
+		ch <- err
+	}()
+	select {
+	case err := <-ch:
+		l.Close()
+		return conn, err
+	case <-ctx.Done():
+	}
+
+	l.Close()
+
+	err := <-ch
+	if err == nil {
+		return conn, err
+	}
+	// Prefer context error to VM error to accept error in order to return the
+	// most useful error.
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return nil, err
 }
 
 func handleRequest(conn net.Conn) {
@@ -72,78 +111,46 @@ func handleRequest(conn net.Conn) {
 	}
 }
 
-// fdb52da4-d1ce-4706-b990-bc20fe25b793
-var TestWindowsGcsHvsockServiceID = guid.GUID{
-	Data1: 0xfdb52da4,
-	Data2: 0xd1ce,
-	Data3: 0x4706,
-	Data4: [8]uint8{0xb9, 0x90, 0xbc, 0x20, 0xfe, 0x25, 0xb7, 0x93},
-}
-
-// e0e16197-dd56-4a10-9195-5ee7a155a838
-var HV_GUID_LOOPBACK = guid.GUID{
-	Data1: 0xe0e16197,
-	Data2: 0xdd56,
-	Data3: 0x4a10,
-	Data4: [8]uint8{0x91, 0x95, 0x5e, 0xe7, 0xa1, 0x55, 0xa8, 0x38},
-}
-
-// a42e7cda-d03f-480c-9cc2-a4de20abb878
-var HV_GUID_PARENT = guid.GUID{
-	Data1: 0xa42e7cda,
-	Data2: 0xd03f,
-	Data3: 0x480c,
-	Data4: [8]uint8{0x9c, 0xc2, 0xa4, 0xde, 0x20, 0xab, 0xb8, 0x78},
-}
-
-func main() {
-	f, err := os.OpenFile("C:\\test-gcs-client2.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalln(fmt.Errorf("error opening file: %v", err))
-	}
-	defer f.Close()
-
-	log.SetOutput(f)
+func startRecvAndSendLoop() {
+	log.Printf("Starting startRecvAndSendLoop()\n")
+	ctx := context.Background()
 
 	// 1. Connect to client
 	hvsockAddr := &winio.HvsockAddr{
-		VMID:      HV_GUID_PARENT,
-		ServiceID: WindowsSidecarGcsHvsockServiceID,
+		VMID:      gcs.HV_GUID_PARENT,
+		ServiceID: gcs.WindowsSidecarGcsHvsockServiceID,
 	}
 
-	ctx := context.Background()
 	fmt.Printf("dialing gcs at address %v", hvsockAddr)
 	shimConn, err := winio.Dial(ctx, hvsockAddr)
 	if err != nil {
 		// error dialing the address
-		fmt.Printf("Error dialing gcs at address %v with err %v", hvsockAddr, err)
 		log.Printf("Error dialing gcs at address %v", hvsockAddr)
 		return
 	}
 
 	// 2.
-
-	serverListener, err := winio.ListenHvsock(&winio.HvsockAddr{
-		VMID: HV_GUID_LOOPBACK,
+	listener, err := winio.ListenHvsock(&winio.HvsockAddr{
+		VMID: gcs.HV_GUID_LOOPBACK,
 		//HV_GUID_SILOHOST,
 		//HV_GUID_PARENT,
 		//HV_GUID_LOOPBACK,
-		ServiceID: TestWindowsGcsHvsockServiceID,
+		ServiceID: gcs.WindowsGcsHvsockServiceID,
 	})
 	if err != nil {
 		log.Printf("Error to start server for sidecar <-> inbox gcs communication")
 		return
 	}
 
-	var sidecarGcsListener net.Listener
-	sidecarGcsListener = serverListener
+	var gcsListener net.Listener
+	gcsListener = listener
 
 	// accept connection
 	//conn, err = listener.Accept()
 	log.Printf("Waiting for service connection from inbox GCS \n")
-	var serverCon net.Conn
-	//??? serverCon, err = acceptAndClose(ctx, sidecarGcsListener, hcsshimCon)
-	serverCon, err = sidecarGcsListener.Accept()
+	var gcsCon net.Conn
+	gcsCon, err = acceptAndClose(ctx, gcsListener)
+	//serverCon, err = sidecarGcsListener.Accept()
 	if err != nil {
 		log.Printf("Err accepting connection %v", err)
 		return
@@ -152,53 +159,26 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	go recvFromSidecarAndSendResponse(shimConn)
+	go recvFromHcsshimAndSendResponse(shimConn, gcsCon)
 
-	go recvFromGcsAndSendResponse(serverCon)
+	go recvFromGcsAndSendResponse(gcsCon, shimConn)
 
 	wg.Wait()
 	///
-	/*
-		listener, err := winio.ListenHvsock(hvsockAddr)
-		if err != nil {
-			//return err
-			fmt.Printf("!! err listening to sock add with err %v", err)
-			return
-		}
-
-		fmt.Printf("! Listeing to server at %v", hvsockAddr)
-
-		log.Printf("! Listeing to server at %v", hvsockAddr)
-		var sidecarGcsListener net.Listener
-		sidecarGcsListener = listener
-
-		var conn net.Conn
-
-		for {
-			//conn, err = listener.Accept()
-			conn, err = sidecarGcsListener.Accept()
-			if err != nil {
-				log.Printf("Err accepting connection %v", err)
-			}
-			log.Printf("got a new connection con: %v", conn)
-			go handleRequest(conn)
-		}
-	*/
 }
 
-func recvFromSidecarAndSendResponse(gcsConn *winio.HvsockConn) {
-	fmt.Printf("Receive loop \n")
+func recvFromHcsshimAndSendResponse(hcsshimCon *winio.HvsockConn, gcsCon net.Conn) {
+	fmt.Printf("Receive loop from hcsshim \n")
 	buffer := make([]byte, 1024)
 
 	for {
-		length, err := gcsConn.Read(buffer)
+		length, err := hcsshimCon.Read(buffer)
 		if err != nil {
 			fmt.Printf("Error reading from inbox gcs with err %v", err)
 			return
 		}
 
 		str := string(buffer[:length])
-		replyString := fmt.Sprintf("hcsshim: Received command %s", str)
 		fmt.Printf("shimResponse: Received command %d\t:%s\n", length, str)
 
 		/*
@@ -217,7 +197,8 @@ func recvFromSidecarAndSendResponse(gcsConn *winio.HvsockConn) {
 			}
 		*/
 
-		_, err = gcsConn.Write([]byte(replyString))
+		// Forward message got from hcsshim
+		_, err = gcsCon.Write([]byte(str))
 		if err != nil {
 			fmt.Printf("!! Error replying from gcs to sidecar with error %v", err)
 			return
@@ -225,26 +206,18 @@ func recvFromSidecarAndSendResponse(gcsConn *winio.HvsockConn) {
 	}
 }
 
-func recvFromGcsAndSendResponse(gcsConn net.Conn) {
-	fmt.Printf("Receive loop \n")
+func recvFromGcsAndSendResponse(gcsCon /*readfrom */ net.Conn, hcsshimCon *winio.HvsockConn) {
+	fmt.Printf("Receive loop from inbox gcs \n")
 	buffer := make([]byte, 1024)
 
-	replyString := "hello from sidecar"
-	_, err := gcsConn.Write([]byte(replyString))
-	if err != nil {
-		fmt.Printf("!! Error replying from gcs to sidecar with error %v", err)
-		return
-	}
-
 	for {
-		length, err := gcsConn.Read(buffer)
+		length, err := gcsCon.Read(buffer)
 		if err != nil {
 			fmt.Printf("Error reading from inbox gcs with err %v", err)
 			return
 		}
 
 		str := string(buffer[:length])
-		replyString := fmt.Sprintf("InboxGCS: Received command %s", str)
 		fmt.Printf("InboxGCS response: Received command %d\t:%s\n", length, str)
 
 		/*
@@ -263,10 +236,118 @@ func recvFromGcsAndSendResponse(gcsConn net.Conn) {
 			}
 		*/
 
-		_, err = gcsConn.Write([]byte(replyString))
+		_, err = hcsshimCon.Write([]byte(str))
 		if err != nil {
 			fmt.Printf("!! Error replying from gcs to sidecar with error %v", err)
 			return
 		}
 	}
+}
+
+func (m *handler) Execute(args []string, r <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
+	log.Printf("got execute request \n ")
+	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown | svc.AcceptPauseAndContinue
+
+	status <- svc.Status{State: svc.StartPending}
+	//m.hvsockAddrAndDialer.startRecvAndSendLoop()
+	//	tick := time.Tick(5 * time.Second)
+	m.fromsvc <- nil
+	status <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
+
+loop:
+	for {
+		select {
+		//	case <-tick:
+		//		log.Print("Tick Handled...!")
+		//		log.Printf("counter is %v", (m.counter))
+		case c := <-r:
+			switch c.Cmd {
+			case svc.Interrogate:
+				status <- c.CurrentStatus
+			case svc.Stop, svc.Shutdown:
+				log.Print("Shutting service...!")
+				break loop
+			case svc.Pause:
+				status <- svc.Status{State: svc.Paused, Accepts: cmdsAccepted}
+			case svc.Continue:
+				status <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
+			default:
+				log.Printf("Unexpected service control request #%d", c)
+			}
+		}
+	}
+
+	status <- svc.Status{State: svc.StopPending}
+	return false, 1
+}
+
+func runService(name string, isDebug bool) error {
+	h := &handler{
+		fromsvc: make(chan error),
+	}
+
+	var err error
+	go func() {
+		if isDebug {
+			err := debug.Run(name, h)
+			if err != nil {
+				log.Fatalf("Error running service in debug mode.Err: %v", err)
+			}
+		} else {
+			err := svc.Run(name, h)
+			if err != nil {
+				log.Fatalf("Error running service in Service Control mode.Err %v", err)
+			}
+		}
+		h.fromsvc <- err
+	}()
+
+	// Wait for the first signal from the service handler.
+	log.Printf("waiting for first signal from scm \n")
+	err = <-h.fromsvc
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
+func main() {
+	f, err := os.OpenFile("C:\\service-debug-gcs-sidecar-test1.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Printf("error opening file: %v", err)
+		log.Fatalln(fmt.Errorf("error opening file: %v", err))
+	}
+	defer f.Close()
+
+	log.SetOutput(f)
+
+	type srvResp struct {
+		err error
+	}
+
+	chsrv := make(chan error)
+	go func() {
+		defer close(chsrv)
+
+		if err := runService("gcs-sidecar", false); err != nil {
+			log.Fatal(err)
+			//?? chsr
+		}
+
+		chsrv <- err
+	}()
+
+	select {
+	//case <-ctx.Done():
+	//	return ctx.Err()
+	case r := <-chsrv:
+		if r != nil {
+			log.Fatal(r)
+
+		}
+		//srvDetails = r.srvDetails
+	}
+
+	startRecvAndSendLoop()
 }

@@ -260,14 +260,16 @@ func (brdg *bridge) recvLoopRoutine() {
 }
 
 func readMessage(r io.Reader) (int64, msgType, []byte, error) {
-	_, span := oc.StartSpan(context.Background(), "bridge receive read message", oc.WithClientSpanKind)
-	defer span.End()
 
 	var h [hdrSize]byte
 	_, err := io.ReadFull(r, h[:])
 	if err != nil {
-		return 0, 0, nil, err
+		errString := fmt.Errorf("bridge receive read message failed err: %v", err)
+		return 0, 0, nil, errString
 	}
+	_, span := oc.StartSpan(context.Background(), "bridge receive read message", oc.WithClientSpanKind)
+	defer span.End()
+
 	typ := msgType(binary.LittleEndian.Uint32(h[hdrOffType:]))
 	n := binary.LittleEndian.Uint32(h[hdrOffSize:])
 	id := int64(binary.LittleEndian.Uint64(h[hdrOffID:]))

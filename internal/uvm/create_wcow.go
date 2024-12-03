@@ -63,7 +63,7 @@ func (uvm *UtilityVM) startExternalGcsListener(ctx context.Context) error {
 
 	l, err := winio.ListenHvsock(&winio.HvsockAddr{
 		VMID:      uvm.runtimeID,
-		ServiceID: gcs.WindowsGcsHvsockServiceID,
+		ServiceID: gcs.WindowsSidecarGcsHvsockServiceID,
 	})
 	if err != nil {
 		return err
@@ -144,6 +144,66 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 				},
 				Name:       "EnableCompartmentNamespace",
 				DWordValue: 1,
+				Type_:      "DWord",
+			},
+		)
+	}
+
+	isCWCOW := true // opts.WindowsGcsSidecar
+	if isCWCOW {
+		registryChanges.AddValues = append(registryChanges.AddValues,
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				},
+				Name:        "DisplayName",
+				StringValue: "gcs-sidecar",
+				Type_:       "String",
+			},
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				},
+				Name:       "ErrorControl",
+				DWordValue: 1,
+				Type_:      "DWord",
+			},
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				},
+				Name:        "ImagePath",
+				StringValue: "C:\\Windows\\System32\\gcs-sidecar.exe",
+				Type_:       "String",
+			},
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				},
+				Name:        "ObjectName",
+				StringValue: "LocalSystem",
+				Type_:       "String",
+			},
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				},
+				Name:       "Start",
+				DWordValue: 2,
+				Type_:      "DWord",
+			},
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				},
+				Name:       "Type",
+				DWordValue: 16,
 				Type_:      "DWord",
 			},
 		)
