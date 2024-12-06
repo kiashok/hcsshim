@@ -221,6 +221,10 @@ const (
 	// SecurityPolicy is used to specify a security policy for opengcs to enforce.
 	SecurityPolicy = "io.microsoft.virtualmachine.lcow.securitypolicy"
 
+	// WcowSecurityPolicy is used to specify a security policy for cwcow to enforce
+	// in sidecar gcs.
+	WcowSecurityPolicy = "io.microsoft.virtualmachine.wcow.securitypolicy"
+
 	// SecurityPolicyEnforcer is used to specify which enforcer to initialize (open-door, standard or rego).
 	// This allows for better fallback mechanics.
 	SecurityPolicyEnforcer = "io.microsoft.virtualmachine.lcow.enforcer"

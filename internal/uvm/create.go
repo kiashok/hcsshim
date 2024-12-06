@@ -97,6 +97,10 @@ type Options struct {
 	// NoWritableFileShares disables adding any writable vSMB and Plan9 shares to the UVM
 	NoWritableFileShares bool
 
+	// WcowSecurityPolicy is used to specify a security policy for cwcow to enforce
+	// in sidecar gcs.
+	WcowSecurityPolicy string
+
 	// The number of SCSI controllers. Defaults to 1 for WCOW and 4 for LCOW
 	SCSIControllerCount uint32
 
