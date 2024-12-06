@@ -21,6 +21,14 @@ github.com/Microsoft/go-winio/pkg/guid
 github.com/Microsoft/go-winio/pkg/process
 github.com/Microsoft/go-winio/tools/mkwinsyscall
 github.com/Microsoft/go-winio/vhd
+# github.com/Microsoft/hnslib v0.0.8
+## explicit; go 1.22.0
+github.com/Microsoft/hnslib/hcn
+github.com/Microsoft/hnslib/internal/cni
+github.com/Microsoft/hnslib/internal/hns
+github.com/Microsoft/hnslib/internal/interop
+github.com/Microsoft/hnslib/internal/regstate
+github.com/Microsoft/hnslib/internal/runhcs
 # github.com/OneOfOne/xxhash v1.2.8
 ## explicit; go 1.11
 github.com/OneOfOne/xxhash

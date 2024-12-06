@@ -10,6 +10,8 @@ github.com/Microsoft/didx509go v0.0.3 h1:n/owuFOXVzCEzSyzivMEolKEouBm9G0NrEDgoTe
 github.com/Microsoft/didx509go v0.0.3/go.mod h1:wWt+iQsLzn3011+VfESzznLIp/Owhuj7rLF7yLglYbk=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
+github.com/Microsoft/hnslib v0.0.8 h1:EBrIiRB7i/UYIXEC2yw22dn+RLzOmsc5S0bw2xf0Qus=
+github.com/Microsoft/hnslib v0.0.8/go.mod h1:EYveQJlhKh2obmEIRB3uKN6dBd9pj1frPsrTGFppKuk=
 github.com/OneOfOne/xxhash v1.2.8 h1:31czK/TI9sNkxIKfaUfGlU47BAxQ0ztGgd9vPyqimf8=
 github.com/OneOfOne/xxhash v1.2.8/go.mod h1:eZbhyaAYD41SGSSsnmcpxVoRiQ/MPUTjUdIIOT9Um7Q=
 github.com/agnivade/levenshtein v1.1.1 h1:QY8M92nrzkmr798gCo3kmMyqXFzdQVpxLlGPRBij0P8=
