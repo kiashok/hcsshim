@@ -190,58 +190,60 @@ func runService(name string, isDebug bool) error {
 }
 
 func main() {
+	// Ignore the following log when running sidecar outside the uvm.
+	// Logs will be at C:\\gcs-sidecar-logs-redirect.log.
+	// See internal/uvm/start.go#252 for more details.
 	f, err := os.OpenFile("C:\\gcs-sidecar-logs.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		fmt.Printf("error opening file: %v", err)
-		log.Fatalf("error opening file: %v", err)
 	}
 	defer f.Close()
 
 	log.SetOutput(f)
 
-	type srvResp struct {
-		err error
-	}
-
-	chsrv := make(chan error)
-	go func() {
-		defer close(chsrv)
-
-		if err := runService("gcs-sidecar", false); err != nil {
-			log.Fatalf("error starting gcs-sidecar service: %v", err)
+	/*
+		type srvResp struct {
+			err error
 		}
 
-		chsrv <- err
-	}()
+		chsrv := make(chan error)
+		go func() {
+			defer close(chsrv)
 
-	select {
-	// case <-ctx.Done():
-	//	return ctx.Err()
-	case r := <-chsrv:
-		if r != nil {
-			log.Fatal(r)
+			if err := runService("gcs-sidecar", false); err != nil {
+				log.Fatalf("error starting gcs-sidecar service: %v", err)
+			}
+
+			chsrv <- err
+		}()
+
+		select {
+		// case <-ctx.Done():
+		//	return ctx.Err()
+		case r := <-chsrv:
+			if r != nil {
+				log.Fatal(r)
+			}
 		}
-	}
+	*/
 
-	ctx := context.Background()
-	// 1. Setup connection with hcsshim external gcs connection
-	hvsockAddr := &winio.HvsockAddr{
-		VMID:      gcs.HV_GUID_PARENT,
-		ServiceID: gcs.WindowsSidecarGcsHvsockServiceID,
+	// take in the uvm id as args
+	if len(os.Args) != 2 {
+		log.Printf("unexpected num of args: %v", len(os.Args))
+		fmt.Printf("unexpected num of args: %v", len(os.Args))
+		return
 	}
-	fmt.Printf("Dialing to hcsshim external bridge at address %v", hvsockAddr)
-	log.Printf("Dialing to hcsshim external bridge at address %v", hvsockAddr)
-
-	shimCon, err := winio.Dial(ctx, hvsockAddr)
+	uvmID, err := guid.FromString(os.Args[1])
 	if err != nil {
-		fmt.Printf("Error dialing hcsshim external bridge at address %v", hvsockAddr)
-		log.Printf("Error dialing hcsshim external bridge at address %v", hvsockAddr)
+		log.Printf("error getting guid from string %v", os.Args[1])
+		fmt.Printf("error getting guid from string %v", os.Args[1])
 		return
 	}
 
-	// 2. Start external server to connect with inbox GCS
+	ctx := context.Background()
+	// 1. Start external server to connect with inbox GCS
 	listener, err := winio.ListenHvsock(&winio.HvsockAddr{
-		VMID: gcs.HV_GUID_LOOPBACK,
+		VMID: uvmID,
 		//HV_GUID_PARENT,
 		ServiceID: gcs.WindowsGcsHvsockServiceID,
 	})
@@ -256,8 +258,23 @@ func main() {
 
 	gcsCon, err := acceptAndClose(ctx, gcsListener)
 	if err != nil {
-		fmt.Printf("Err accepting inbox GCS connection %v", err)
 		log.Printf("Err accepting inbox GCS connection %v", err)
+		fmt.Printf("Err accepting inbox GCS connection %v", err)
+		return
+	}
+
+	// 2. Setup connection with hcsshim external gcs connection
+	hvsockAddr := &winio.HvsockAddr{
+		VMID:      gcs.HV_GUID_LOOPBACK,
+		ServiceID: gcs.WindowsSidecarGcsHvsockServiceID,
+	}
+	log.Printf("Dialing to hcsshim external bridge at address %v", hvsockAddr)
+	fmt.Printf("Dialing to hcsshim external bridge at address %v", hvsockAddr)
+
+	shimCon, err := winio.Dial(ctx, hvsockAddr)
+	if err != nil {
+		log.Printf("Error dialing hcsshim external bridge at address %v", hvsockAddr)
+		fmt.Printf("Error dialing hcsshim external bridge at address %v", hvsockAddr)
 		return
 	}
 

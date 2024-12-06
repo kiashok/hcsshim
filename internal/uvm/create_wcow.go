@@ -63,10 +63,10 @@ func (uvm *UtilityVM) startExternalGcsListener(ctx context.Context) error {
 	log.G(ctx).WithField("vmID", uvm.runtimeID).Debug("Using external GCS bridge")
 
 	l, err := winio.ListenHvsock(&winio.HvsockAddr{
-		VMID: uvm.runtimeID,
-		// gcs.HV_GUID_PARENT,
+		VMID: gcs.HV_GUID_LOOPBACK,
+		// uvm.runtimeID,
 		ServiceID: gcs.WindowsSidecarGcsHvsockServiceID,
-		//gcs.WindowsGcsHvsockServiceID,
+		// gcs.WindowsGcsHvsockServiceID,
 	})
 	if err != nil {
 		return err
