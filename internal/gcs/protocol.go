@@ -12,6 +12,31 @@ import (
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 )
 
+// e0e16197-dd56-4a10-9195-5ee7a155a838
+var HV_GUID_LOOPBACK = guid.GUID{
+	Data1: 0xe0e16197,
+	Data2: 0xdd56,
+	Data3: 0x4a10,
+	Data4: [8]uint8{0x91, 0x95, 0x5e, 0xe7, 0xa1, 0x55, 0xa8, 0x38},
+}
+
+// a42e7cda-d03f-480c-9cc2-a4de20abb878
+var HV_GUID_PARENT = guid.GUID{
+	Data1: 0xa42e7cda,
+	Data2: 0xd03f,
+	Data3: 0x480c,
+	Data4: [8]uint8{0x9c, 0xc2, 0xa4, 0xde, 0x20, 0xab, 0xb8, 0x78},
+}
+
+// WindowsSidecarGcsHvsockServiceID is the hvsock service ID that the Windows GCS
+// sidecar will connect to.
+var WindowsSidecarGcsHvsockServiceID = guid.GUID{
+	Data1: 0xae8da506,
+	Data2: 0xa019,
+	Data3: 0x4553,
+	Data4: [8]uint8{0xa5, 0x2b, 0x90, 0x2b, 0xc0, 0xfa, 0x04, 0x11},
+}
+
 // LinuxGcsVsockPort is the vsock port number that the Linux GCS will
 // connect to.
 const LinuxGcsVsockPort = 0x40000000
