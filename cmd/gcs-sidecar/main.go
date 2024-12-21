@@ -1,3 +1,6 @@
+//go:build windows
+// +build windows
+
 package main
 
 import (
@@ -6,16 +9,15 @@ import (
 	"log"
 	"net"
 	"os"
-	"sync"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
 	"github.com/Microsoft/hcsshim/internal/gcs"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
-)
 
-const maxMsgSize = 0x10000
+	gcsBridge "github.com/Microsoft/hcsshim/cmd/gcs-sidecar/internal/bridge"
+)
 
 type handler struct {
 	fromsvc chan error
@@ -57,71 +59,6 @@ func acceptAndClose(ctx context.Context, l net.Listener) (net.Conn, error) {
 		return nil, ctx.Err()
 	}
 	return nil, err
-}
-
-func recvFromShimAndForward(hcsshimCon *winio.HvsockConn, gcsCon net.Conn, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	buffer := make([]byte, maxMsgSize)
-	for {
-		length, err := hcsshimCon.Read(buffer)
-		if err != nil {
-			fmt.Printf("Error reading from hcsshim: %v", err)
-			log.Printf("Error reading from hcsshim: %v", err)
-			return
-		}
-
-		str := string(buffer[:length])
-		fmt.Printf("Received len %v from shim: %s\n", length, str)
-		log.Printf("Received len %v from shim: %s\n", length, str)
-
-		// TODO: Dereference and call policy enforcer as needed!
-
-		// Forward message to inbox gcs
-		_, err = gcsCon.Write([]byte(str))
-		if err != nil {
-			fmt.Printf("Error forwarding from sidecar to inbox: %v", err)
-			log.Printf("Error forwarding from sidecar to inbox: %v", err)
-			return
-		}
-	}
-}
-
-func recvFromGcsAndForward(gcsCon /*readfrom */ net.Conn, hcsshimCon *winio.HvsockConn, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	buffer := make([]byte, maxMsgSize)
-	for {
-		length, err := gcsCon.Read(buffer)
-		if err != nil {
-			fmt.Printf("Error reading from inbox gcs: %v", err)
-			log.Printf("Error reading from inbox gcs: %v", err)
-			return
-		}
-
-		str := string(buffer[:length])
-		fmt.Printf("Received len %v from InboxGCS: %s\n", length, str)
-		log.Printf("Received len %v from InboxGCS: %s\n", length, str)
-
-		// TODO: Deferencing/unmounting/cleanup here on error before forwarding
-		// response to hcsshim
-
-		_, err = hcsshimCon.Write([]byte(str))
-		if err != nil {
-			fmt.Printf("Error forwarding from inbox to shim: %v", err)
-			log.Printf("Error forwarding from inbox to shim: %v", err)
-			return
-		}
-	}
-}
-
-func startSendAndRecvLoops(shimCon *winio.HvsockConn, gcsCon net.Conn) {
-	var wg sync.WaitGroup
-	wg.Add(2)
-	defer wg.Wait()
-
-	go recvFromShimAndForward(shimCon, gcsCon, &wg)
-	go recvFromGcsAndForward(gcsCon, shimCon, &wg)
 }
 
 func (m *handler) Execute(args []string, r <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
@@ -230,13 +167,11 @@ func main() {
 	// take in the uvm id as args
 	if len(os.Args) != 2 {
 		log.Printf("unexpected num of args: %v", len(os.Args))
-		fmt.Printf("unexpected num of args: %v", len(os.Args))
 		return
 	}
 	uvmID, err := guid.FromString(os.Args[1])
 	if err != nil {
 		log.Printf("error getting guid from string %v", os.Args[1])
-		fmt.Printf("error getting guid from string %v", os.Args[1])
 		return
 	}
 
@@ -244,12 +179,15 @@ func main() {
 	// 1. Start external server to connect with inbox GCS
 	listener, err := winio.ListenHvsock(&winio.HvsockAddr{
 		VMID: uvmID,
+		// TODO: Following line is commented out only for POC as we want to
+		// start gcs-sidecar.exe on the host (external to uvm).
+		// The VMID needs to be replaces with HV_GUID_PARENT in the
+		// final changes.
 		//HV_GUID_PARENT,
 		ServiceID: gcs.WindowsGcsHvsockServiceID,
 	})
 	if err != nil {
 		log.Printf("Error to start server for sidecar <-> inbox gcs communication: %v", err)
-		fmt.Printf("Error to start server for sidecar <-> inbox gcs communication: %v", err)
 		return
 	}
 
@@ -259,7 +197,6 @@ func main() {
 	gcsCon, err := acceptAndClose(ctx, gcsListener)
 	if err != nil {
 		log.Printf("Err accepting inbox GCS connection %v", err)
-		fmt.Printf("Err accepting inbox GCS connection %v", err)
 		return
 	}
 
@@ -269,15 +206,21 @@ func main() {
 		ServiceID: gcs.WindowsSidecarGcsHvsockServiceID,
 	}
 	log.Printf("Dialing to hcsshim external bridge at address %v", hvsockAddr)
-	fmt.Printf("Dialing to hcsshim external bridge at address %v", hvsockAddr)
 
 	shimCon, err := winio.Dial(ctx, hvsockAddr)
 	if err != nil {
 		log.Printf("Error dialing hcsshim external bridge at address %v", hvsockAddr)
-		fmt.Printf("Error dialing hcsshim external bridge at address %v", hvsockAddr)
 		return
 	}
 
-	// 3. start the send and receive loops
-	startSendAndRecvLoops(shimCon, gcsCon)
+	// 3. Create bridge and initializa
+	brdg := gcsBridge.NewBridge(shimCon, gcsCon)
+	brdg.AssignHandlers()
+
+	// 3. Listen and serve for hcsshim requests.
+	// startSendAndRecvLoops(shimCon, gcsCon)
+	err = brdg.ListenAndServeShimRequests()
+	if err != nil {
+		log.Printf("failed to serve gcs service \n")
+	}
 }
