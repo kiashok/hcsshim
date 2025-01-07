@@ -107,6 +107,16 @@ const (
 	LCOWPrivileged = "io.microsoft.virtualmachine.lcow.privileged"
 )
 
+// WCOW integrity protection and confidential container annotations.
+const (
+	// WCOW SecurityPolicy is used to specify a security policy for opengcs to enforce.
+	WCOWSecurityPolicy = "io.microsoft.virtualmachine.wcow.securitypolicy"
+
+	// WCOW SecurityPolicyEnforcer is used to specify which enforcer to initialize (open-door, standard or rego).
+	// This allows for better fallback mechanics.
+	WCOWSecurityPolicyEnforcer = "io.microsoft.virtualmachine.wcow.enforcer"
+)
+
 // LCOW integrity protection and confidential container annotations.
 const (
 	// DmVerityCreateArgs specifies the `dm-mod.create` parameters to kernel and enables integrity protection of
@@ -283,6 +293,7 @@ const (
 
 // uVM NUMA annotations.
 const (
+	// NumaMaximumProcessorsPerNode is the maximum number of processors per vNUMA node.
 	// This should be used for implicit vNUMA topology.
 	NumaMaximumProcessorsPerNode = "io.microsoft.virtualmachine.computetopology.processor.numa.max-processors-per-node"
 
