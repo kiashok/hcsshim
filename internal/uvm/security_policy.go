@@ -135,8 +135,11 @@ func (uvm *UtilityVM) SetWCOWConfidentialUVMOptions(ctx context.Context, opts ..
 			return err
 		}
 	}
+
 	modification := &hcsschema.ModifySettingRequest{
-		RequestType: guestrequest.RequestTypeAdd,
+		// TODO (kiashok) Check: In hyperv-wcow calls, don't see RequestType being
+		// used when GuestRequet != nil. Do we need this specifically here?
+		// RequestType: guestrequest.RequestTypeAdd,
 		GuestRequest: guestrequest.ModificationRequest{
 			ResourceType: guestresource.ResourceTypeSecurityPolicy,
 			RequestType:  guestrequest.RequestTypeAdd,
@@ -144,8 +147,9 @@ func (uvm *UtilityVM) SetWCOWConfidentialUVMOptions(ctx context.Context, opts ..
 		},
 	}
 	if err := uvm.modify(ctx, modification); err != nil {
-		return fmt.Errorf("uvm::Policy: failed to modify utility VM configuration: %w", err)
+		return fmt.Errorf("uvm::SetWCOWConfidentialUVMOptions: failed to modify utility VM configuration: %w", err)
 	}
+
 	return nil
 }
 
