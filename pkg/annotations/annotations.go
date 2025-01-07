@@ -228,6 +228,15 @@ const (
 	// This allows for better fallback mechanics.
 	SecurityPolicyEnforcer = "io.microsoft.virtualmachine.lcow.enforcer"
 
+	// WcowSecurityPolicy is used to specify a security policy for cwcow to enforce
+	// in sidecar gcs.
+	WCOWSecurityPolicy = "io.microsoft.virtualmachine.wcow.securitypolicy"
+
+	// WCOWSecurityPolicyEnforcer is used with c-wcow to specify which enforcer to
+	// initialize (open-door, standard or rego).
+	// This allows for better fallback mechanics.
+	WCOWSecurityPolicyEnforcer = "io.microsoft.virtualmachine.wcow.enforcer"
+
 	// HclEnabled specifies whether to enable the host compatibility layer.
 	HclEnabled = "io.microsoft.virtualmachine.lcow.hcl-enabled"
 
@@ -289,6 +298,9 @@ const (
 
 	// UVMReferenceInfoFile specifies the filename of a signed UVM reference file to be passed to UVM.
 	UVMReferenceInfoFile = "io.microsoft.virtualmachine.lcow.uvm-reference-info-file"
+
+	// UVMReferenceInfoFile specifies the filename of a signed UVM reference file to be passed to UVM.
+	WCOWUVMReferenceInfoFile = "io.microsoft.virtualmachine.wcow.uvm-reference-info-file"
 
 	// HostAMDCertificate specifies the filename of the AMD certificates to be passed to UVM.
 	// The certificate is expected to be located in the same directory as the shim executable.
