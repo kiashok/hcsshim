@@ -630,7 +630,15 @@ func (ht *hcsTask) waitForHostOrContainerExit() {
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("tid", ht.id))
 
-	err := ht.host.WaitForUvmOrContainerExit(ctx, ht.c)
+	var err error
+	select {
+	case <-ht.c.WaitChannel():
+		err = ht.c.WaitError()
+	case <-ht.host.WaitCh():
+		err = ht.host.WaitErr()
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
 	if err != nil {
 		log.G(ctx).WithError(err).Error("failed to wait for host virtual machine exit")
 	} else {

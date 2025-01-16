@@ -291,6 +291,7 @@ func (uvm *UtilityVM) CloseCtx(ctx context.Context) (err error) {
 		return uvm.hcsSystem.CloseCtx(ctx)
 	}
 
+	close(uvm.waitCh)
 	return nil
 }
 
