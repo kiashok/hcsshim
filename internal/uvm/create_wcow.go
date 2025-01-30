@@ -189,71 +189,73 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW) (*
 
 	registryChanges.AddValues = append(registryChanges.AddValues, opts.AdditionalRegistryKeys...)
 
-	// Temporary hack to start up windows sidecar gcs in the uvm
-	isCWCOW := true
 	/* TODO: uncomment after POC
 	if opts.WcowSecurityPolicy != "" {
 		isCWCOW = true
 	}
 	*/
-	if isCWCOW {
-		registryChanges.AddValues = append(registryChanges.AddValues,
-			hcsschema.RegistryValue{
-				Key: &hcsschema.RegistryKey{
-					Hive: "System",
-					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+	/*
+		// Temporary hack to start up windows sidecar gcs in the uvm
+		isCWCOW := true
+		if isCWCOW {
+			registryChanges.AddValues = append(registryChanges.AddValues,
+				hcsschema.RegistryValue{
+					Key: &hcsschema.RegistryKey{
+						Hive: "System",
+						Name: "CurrentControlSet\\Services\\gcs-sidecar",
+					},
+					Name:        "DisplayName",
+					StringValue: "gcs-sidecar",
+					Type_:       "String",
 				},
-				Name:        "DisplayName",
-				StringValue: "gcs-sidecar",
-				Type_:       "String",
-			},
-			hcsschema.RegistryValue{
-				Key: &hcsschema.RegistryKey{
-					Hive: "System",
-					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				hcsschema.RegistryValue{
+					Key: &hcsschema.RegistryKey{
+						Hive: "System",
+						Name: "CurrentControlSet\\Services\\gcs-sidecar",
+					},
+					Name:       "ErrorControl",
+					DWordValue: 1,
+					Type_:      "DWord",
 				},
-				Name:       "ErrorControl",
-				DWordValue: 1,
-				Type_:      "DWord",
-			},
-			hcsschema.RegistryValue{
-				Key: &hcsschema.RegistryKey{
-					Hive: "System",
-					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				hcsschema.RegistryValue{
+					Key: &hcsschema.RegistryKey{
+						Hive: "System",
+						Name: "CurrentControlSet\\Services\\gcs-sidecar",
+					},
+					Name:        "ImagePath",
+					StringValue: "C:\\Windows\\System32\\gcs-sidecar.exe",
+					Type_:       "String",
 				},
-				Name:        "ImagePath",
-				StringValue: "C:\\Windows\\System32\\gcs-sidecar.exe",
-				Type_:       "String",
-			},
-			hcsschema.RegistryValue{
-				Key: &hcsschema.RegistryKey{
-					Hive: "System",
-					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				hcsschema.RegistryValue{
+					Key: &hcsschema.RegistryKey{
+						Hive: "System",
+						Name: "CurrentControlSet\\Services\\gcs-sidecar",
+					},
+					Name:        "ObjectName",
+					StringValue: "LocalSystem",
+					Type_:       "String",
 				},
-				Name:        "ObjectName",
-				StringValue: "LocalSystem",
-				Type_:       "String",
-			},
-			hcsschema.RegistryValue{
-				Key: &hcsschema.RegistryKey{
-					Hive: "System",
-					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				hcsschema.RegistryValue{
+					Key: &hcsschema.RegistryKey{
+						Hive: "System",
+						Name: "CurrentControlSet\\Services\\gcs-sidecar",
+					},
+					Name:       "Start",
+					DWordValue: 2,
+					Type_:      "DWord",
 				},
-				Name:       "Start",
-				DWordValue: 2,
-				Type_:      "DWord",
-			},
-			hcsschema.RegistryValue{
-				Key: &hcsschema.RegistryKey{
-					Hive: "System",
-					Name: "CurrentControlSet\\Services\\gcs-sidecar",
+				hcsschema.RegistryValue{
+					Key: &hcsschema.RegistryKey{
+						Hive: "System",
+						Name: "CurrentControlSet\\Services\\gcs-sidecar",
+					},
+					Name:       "Type",
+					DWordValue: 16,
+					Type_:      "DWord",
 				},
-				Name:       "Type",
-				DWordValue: 16,
-				Type_:      "DWord",
-			},
-		)
-	}
+			)
+		}
+	*/
 
 	processor := &hcsschema.VirtualMachineProcessor{
 		Count:  uint32(uvm.processorCount),
