@@ -16,7 +16,6 @@ import (
 	"github.com/containerd/containerd/remotes/docker/config"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/errdefs"
-	"github.com/containerd/platforms"
 	"github.com/opencontainers/image-spec/identity"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -77,43 +76,6 @@ func (cco ContainerdClientOptions) NewClient(
 	})
 
 	return c
-}
-
-func GetPlatformComparer(tb testing.TB, platform string) platforms.MatchComparer {
-	tb.Helper()
-	var p platforms.MatchComparer
-	if platform == "" {
-		p = platforms.All
-	} else {
-		pp, err := platforms.Parse(platform)
-		if err != nil {
-			tb.Fatalf("could not parse platform %q: %v", platform, err)
-		}
-		p = platforms.Only(pp)
-	}
-
-	return p
-}
-
-// GetImageChainID gets the chain id of an image. platform can be "".
-func GetImageChainID(ctx context.Context, tb testing.TB, client *containerd.Client, image, platform string) string {
-	tb.Helper()
-	is := client.ImageService()
-
-	i, err := is.Get(ctx, image)
-	if err != nil {
-		tb.Fatalf("could not retrieve image %q: %v", image, err)
-	}
-
-	p := GetPlatformComparer(tb, platform)
-
-	diffIDs, err := i.RootFS(ctx, client.ContentStore(), p)
-	if err != nil {
-		tb.Fatalf("could not retrieve unpacked diff ids: %v", err)
-	}
-	chainID := identity.ChainID(diffIDs).String()
-
-	return chainID
 }
 
 func CreateActiveSnapshot(ctx context.Context, tb testing.TB, client *containerd.Client, snapshotter, parent, key string, opts ...snapshots.Opt) []mount.Mount {
