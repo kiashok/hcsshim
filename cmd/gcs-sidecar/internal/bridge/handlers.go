@@ -277,17 +277,16 @@ func (b *Bridge) unmarshalModifySettingsAndForward(req *request) error {
 		case guestresource.ResourceTypeCWCOWCombinedLayers:
 			settings := &guestresource.CWCOWCombinedLayers{}
 			if err := json.Unmarshal(rawGuestRequest, settings); err != nil {
-				log.Printf("invalid ResourceTypeCombinedLayers request %v", r)
+				log.Printf("invalid ResourceTypeWCOWCombinedLayers request %v", r)
 				return fmt.Errorf("invalid ResourceTypeCombinedLayers request %v", r)
 			}
 			containerID := settings.ContainerID
 			log.Printf(", CWCOWCombinedLayers {ContainerID: %v {ContainerRootPath: %v, Layers: %v, ScratchPath: %v}} \n",
 				containerID, settings.CombinedLayers.ContainerRootPath, settings.CombinedLayers.Layers, settings.CombinedLayers.ScratchPath)
 
-			// reconstruct WCOWCombinedLayers{} and req before forwarding to GCS
-			// as GCS does not understand containerID in CombinedLayers request
+			// Reconstruct WCOWCombinedLayers{} and req before forwarding to GCS
+			// as inbox GCS does not understand containerID in CombinedLayers request
 
-			//wcowCombinedLayerSettings := settings.CombinedLayers
 			modifyGuestSettingsRequest.ResourceType = guestresource.ResourceTypeCombinedLayers
 			modifyGuestSettingsRequest.Settings = settings.CombinedLayers
 			r.Request = modifyGuestSettingsRequest
@@ -298,8 +297,7 @@ func (b *Bridge) unmarshalModifySettingsAndForward(req *request) error {
 
 			var newRequest request
 			newRequest.header = req.header
-			size := uint32(len(buf)) + hdrSize
-			binary.LittleEndian.PutUint32(newRequest.header[hdrOffSize:], size)
+			setRequestSize(&newRequest, uint32(len(buf)))
 			newRequest.message = buf
 			req = &newRequest
 
