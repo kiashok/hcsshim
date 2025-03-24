@@ -10,6 +10,7 @@ import (
 	"unsafe"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim/internal/fsformatter"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/pkg/errors"
@@ -30,6 +31,8 @@ const (
 	_IOCTL_SCSI_GET_ADDRESS = 0x41018
 
 	_IOCTL_STORAGE_GET_DEVICE_NUMBER = 0x2d1080
+
+	_IOCTL_KERNEL_FORMAT_VOLUME_FORMAT = 0x40001000
 )
 
 var (
@@ -45,9 +48,9 @@ var (
 
 // https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-storage_device_number
 type STORAGE_DEVICE_NUMBER struct {
-	DeviceType      uint64
-	DeviceNumber    uint64
-	PartitionNumber uint64
+	DeviceType      uint32
+	DeviceNumber    uint32
+	PartitionNumber uint32
 }
 
 // SCSI_ADDRESS structure used with IOCTL_SCSI_GET_ADDRESS.
@@ -237,7 +240,7 @@ func getDeviceInterfaceList(ctx context.Context, controller, lun uint8) ([]strin
 func GetScsiDevicePathAndDiskNumberFromControllerLUN(ctx context.Context, controller, LUN uint8) (string, uint64, error) {
 	interfacePaths, err := getDeviceInterfaceList(ctx, controller, LUN)
 	if err != nil {
-		return "", 0, nil
+		return "", 0, err
 	}
 
 	// go over each disk device interface and find out its LUN
@@ -254,7 +257,7 @@ func GetScsiDevicePathAndDiskNumberFromControllerLUN(ctx context.Context, contro
 		}
 
 		// TODO(ambarve): is comparing controller with port number the correct way?
-		if scsiAddr.Lun == LUN && scsiAddr.PortNumber == controller {
+		if scsiAddr.Lun == LUN { //Commenting just for testing on local vm  && scsiAddr.PortNumber == controller {
 			// get the disk number
 			var bytesReturned uint32
 			var deviceNumber STORAGE_DEVICE_NUMBER
@@ -269,9 +272,59 @@ func GetScsiDevicePathAndDiskNumberFromControllerLUN(ctx context.Context, contro
 			); err != nil {
 				return "", 0, err
 			}
-
-			return iPath, deviceNumber.DeviceNumber, nil
+			fmt.Printf("\n deviceNumber got: %v", deviceNumber.DeviceNumber)
+			return iPath, uint64(deviceNumber.DeviceNumber), nil
 		}
 	}
 	return "", 0, fmt.Errorf("no device found with controller: %d & LUN:%d", controller, LUN)
+}
+
+// InvokeFsFormatter makes an ioctl call to the fsFormatter driver and returns
+// a path to the mountedVolume
+func InvokeFsFormatter(ctx context.Context, diskPath string) (string, error) {
+	// Prepare input and output buffers as expected by fsFormatter
+	inputBuffer := fsformatter.KmFmtCreateFormatInputBuffer(diskPath)
+	outputBuffer := fsformatter.KmFmtCreateFormatOutputBuffer()
+
+	utf16DriverPath, _ := windows.UTF16PtrFromString(fsformatter.KERNEL_FORMAT_VOLUME_WIN32_DRIVER_PATH)
+	deviceHandle, err := windows.CreateFile(utf16DriverPath,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
+		0,
+		nil,
+		windows.OPEN_EXISTING,
+		0,
+		0)
+	if err != nil {
+		return "", fmt.Errorf("error getting handle to fsFormatter driver: %v", err)
+	}
+	defer windows.Close(deviceHandle)
+
+	// Ioctl to fsFormatter driver
+	var bytesReturned uint32
+	if err := windows.DeviceIoControl(
+		deviceHandle,
+		_IOCTL_KERNEL_FORMAT_VOLUME_FORMAT,
+		(*byte)(unsafe.Pointer(inputBuffer)),
+		uint32(inputBuffer.Size),
+		(*byte)(unsafe.Pointer(outputBuffer)),
+		outputBuffer.Size,
+		&bytesReturned,
+		nil,
+	); err != nil {
+		return "", err
+	}
+
+	// Read the returned volume path from the corresponding offset in outputBuffer
+	ptr := unsafe.Pointer(uintptr(unsafe.Pointer(outputBuffer)) + uintptr(fsformatter.GetVolumePathBufferOffset()))
+	var result []byte
+	for i := 0; i < int(outputBuffer.VolumePathLength); i++ {
+		// Read each byte (this is unsafe, but for illustrative purposes)
+		byteVal := *((*byte)(unsafe.Pointer(uintptr(ptr) + uintptr(i))))
+		result = append(result, byteVal)
+	}
+
+	mountedVolumePath := string(result)
+	log.G(ctx).Debugf("MountedVolumePath returned: %v", mountedVolumePath)
+
+	return mountedVolumePath, err
 }
