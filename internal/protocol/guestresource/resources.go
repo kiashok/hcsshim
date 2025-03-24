@@ -26,6 +26,7 @@ const (
 	// ResourceTypeMappedVirtualDisk is the modify resource type for mapped
 	// virtual disks
 	ResourceTypeMappedVirtualDisk guestrequest.ResourceType = "MappedVirtualDisk"
+	ResourceTypeWCOWBlockCims     guestrequest.ResourceType = "WCOWBlockCims"
 	// ResourceTypeNetwork is the modify resource type for the `NetworkAdapterV2`
 	// device.
 	ResourceTypeNetwork          guestrequest.ResourceType = "Network"
@@ -96,6 +97,18 @@ type LCOWMappedVirtualDisk struct {
 	VerityInfo       *DeviceVerityInfo `json:"VerityInfo,omitempty"`
 	EnsureFilesystem bool              `json:"EnsureFilesystem,omitempty"`
 	Filesystem       string            `json:"Filesystem,omitempty"`
+}
+
+type BlockCIMDevice struct {
+	CimName string
+	Lun     int32
+}
+
+type WCOWBlockCIMMounts struct {
+	// BlockCIMs should be ordered from merged CIM followed by Layer n .. layer 1
+	BlockCIMs  []BlockCIMDevice `json:"BlockCIMs,omitempty"`
+	VolumeGuid string           `json:"VolumeGuid,omitempty"`
+	MountFlags uint32           `json:"MountFlags,omitempty"`
 }
 
 type WCOWMappedVirtualDisk struct {
