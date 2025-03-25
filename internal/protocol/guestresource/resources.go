@@ -4,6 +4,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/protocol/guestrequest"
 	"github.com/opencontainers/runtime-spec/specs-go"
 
+	"github.com/Microsoft/go-winio/pkg/guid"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 )
 
@@ -110,7 +111,7 @@ type BlockCIMDevice struct {
 type WCOWBlockCIMMounts struct {
 	// BlockCIMs should be ordered from merged CIM followed by Layer n .. layer 1
 	BlockCIMs  []BlockCIMDevice `json:"BlockCIMs,omitempty"`
-	VolumeGuid string           `json:"VolumeGuid,omitempty"`
+	VolumeGuid guid.GUID        `json:"VolumeGuid,omitempty"`
 	MountFlags uint32           `json:"MountFlags,omitempty"`
 }
 

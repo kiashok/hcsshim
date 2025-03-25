@@ -17,6 +17,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/protocol/guestrequest"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
 	"github.com/Microsoft/hcsshim/internal/windevice"
+	"github.com/Microsoft/hcsshim/pkg/cimfs"
 	"github.com/pkg/errors"
 )
 
@@ -341,6 +342,58 @@ func (b *Bridge) unmarshalModifySettingsAndForward(req *request) error {
 			}
 
 			log.Printf(", NetworkModifyRequest { %v} \n", settings)
+
+		case guestresource.ResourceTypeWCOWBlockCims:
+			// This is request to mount the merged cim at given volumeGUID
+			wcowBlockCimMounts := &guestresource.WCOWBlockCIMMounts{}
+			if err := json.Unmarshal(rawGuestRequest, wcowBlockCimMounts); err != nil {
+				log.Printf("invalid ResourceTypeWCOWBlockCims request %v", r)
+				return fmt.Errorf("invalid ResourceTypeWCOWBlockCims request %v", r)
+			}
+			log.Printf(", WCOWBlockCIMMounts { %v} \n", wcowBlockCimMounts)
+
+			var mergedCim cimfs.BlockCIM
+			var sourceCims []*cimfs.BlockCIM
+			ctx := context.Background()
+			for i, blockCimDevice := range wcowBlockCimMounts.BlockCIMs {
+				// Get the scsi device path for the blockCim lun
+				scsiDevPath, _, err := windevice.GetScsiDevicePathAndDiskNumberFromControllerLUN(
+					ctx,
+					0, /* controller is always 0 for wcow */
+					uint8(blockCimDevice.Lun))
+				if err != nil {
+					log.Printf("err getting scsiDevPath: %v", r)
+					return err
+				}
+				if i == 0 {
+					// BlockCIMs should be ordered from merged CIM followed by Layer n .. layer 1
+					mergedCim = cimfs.BlockCIM{
+						Type:      cimfs.BlockCIMTypeDevice,
+						BlockPath: scsiDevPath,
+						CimName:   blockCimDevice.CimName,
+					}
+				} else {
+					layerCim := cimfs.BlockCIM{
+						Type:      cimfs.BlockCIMTypeDevice,
+						BlockPath: scsiDevPath,
+						CimName:   blockCimDevice.CimName,
+					}
+					sourceCims = append(sourceCims, &layerCim)
+				}
+			}
+
+			// Get the topmost merge CIM and invoke the MountMergedBlockCIMs
+			_, err := cimfs.MountMergedBlockCIMs(&mergedCim, sourceCims, wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGuid)
+			if err != nil {
+				return fmt.Errorf("error mounting merged block cims: %v", err)
+			}
+			// Send reply back to hcsshim
+			err = b.sendReplyToShim(rpcModifySettings, *req)
+			if err != nil {
+				log.Printf("error sending reply back to hcsshim from ResourceTypeWCOWBlockCims")
+				return fmt.Errorf("error sending reply back to hcsshim from ResourceTypeWCOWBlockCims: %v", err)
+			}
+			return nil
 
 		case guestresource.ResourceTypeMappedVirtualDiskForContainerScratch:
 			wcowMappedVirtualDisk := &guestresource.WCOWMappedVirtualDisk{}
