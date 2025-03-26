@@ -21,6 +21,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
 	"github.com/Microsoft/hcsshim/internal/windevice"
 	"github.com/Microsoft/hcsshim/pkg/cimfs"
+	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
 	"github.com/pkg/errors"
 )
 
@@ -96,6 +97,10 @@ func (b *Bridge) shutdownGraceful(req *request) (err error) {
 	// TODO (kiashok/Mahati): Since gcs-sidecar can be used for all types of windows
 	// containers, it is important to check if we want to
 	// enforce policy or not.
+	b.hostState.securityPolicyEnforcer.EnforceShutdownContainerPolicy(req.ctx, r.ContainerID)
+	if err != nil {
+		return fmt.Errorf("rpcShudownGraceful operation not allowed: %v", err)
+	}
 
 	b.forwardRequestToGcs(req)
 	return nil
@@ -384,6 +389,15 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 			log.G(ctx).Tracef("CWCOWCombinedLayers:: ContainerID: %v, ContainerRootPath: %v, Layers: %v, ScratchPath: %v",
 				containerID, settings.CombinedLayers.ContainerRootPath, settings.CombinedLayers.Layers, settings.CombinedLayers.ScratchPath)
 
+			// check that this is not denied by policy
+			// TODO: modify gcs-sidecar code to pass context across all calls
+			// TODO: Update modifyCombinedLayers with verified CimFS API
+			var ctx context.Context
+			policy_err := modifyCombinedLayers(ctx, containerID, guestRequestType, settings.CombinedLayers, b.hostState.securityPolicyEnforcer)
+			if policy_err != nil {
+				return errors.Wrapf(policy_err, "CimFS layer mount is denied by policy: %v", settings)
+			}
+
 			// TODO: Update modifyCombinedLayers with verified CimFS API
 
 			// The following two folders are expected to be present in the scratch.
@@ -419,6 +433,12 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 		case guestresource.ResourceTypeMappedVirtualDiskForContainerScratch:
 			wcowMappedVirtualDisk := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWMappedVirtualDisk)
 			log.G(ctx).Tracef("ResourceTypeMappedVirtualDiskForContainerScratch: { %v }", wcowMappedVirtualDisk)
+
+			var ctx context.Context
+			policy_err := modifyMappedVirtualDisk(ctx, guestRequestType, wcowMappedVirtualDisk, b.hostState.securityPolicyEnforcer)
+			if policy_err != nil {
+				return errors.Wrapf(policy_err, "Mount device denied by policy %v", wcowMappedVirtualDisk)
+			}
 
 			// 1. TODO (kiashok/Mahati): Need to enforce policy before calling into fsFormatter
 			// 2. Call fsFormatter to format the scratch disk.
@@ -479,4 +499,43 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 
 	b.forwardRequestToGcs(req)
 	return nil
+}
+
+func modifyMappedVirtualDisk(
+	ctx context.Context,
+	rt guestrequest.RequestType,
+	mvd *guestresource.WCOWMappedVirtualDisk,
+	securityPolicy securitypolicy.SecurityPolicyEnforcer,
+) (err error) {
+	switch rt {
+	case guestrequest.RequestTypeAdd:
+		// TODO: Modify and update this with verified Cims API
+		return securityPolicy.EnforceDeviceMountPolicy(ctx, mvd.ContainerPath, "hash")
+	case guestrequest.RequestTypeRemove:
+		// TODO: Modify and update this with verified Cims API
+		return securityPolicy.EnforceDeviceUnmountPolicy(ctx, mvd.ContainerPath)
+	default:
+		return newInvalidRequestTypeError(rt)
+	}
+}
+
+func modifyCombinedLayers(
+	ctx context.Context,
+	containerID string,
+	rt guestrequest.RequestType,
+	cl guestresource.WCOWCombinedLayers,
+	securityPolicy securitypolicy.SecurityPolicyEnforcer,
+) (err error) {
+	switch rt {
+	case guestrequest.RequestTypeAdd:
+		layerPaths := make([]string, len(cl.Layers))
+		for i, layer := range cl.Layers {
+			layerPaths[i] = layer.Path
+		}
+		return securityPolicy.EnforceOverlayMountPolicy(ctx, containerID, layerPaths, cl.ContainerRootPath)
+	case guestrequest.RequestTypeRemove:
+		return securityPolicy.EnforceOverlayUnmountPolicy(ctx, cl.ContainerRootPath)
+	default:
+		return newInvalidRequestTypeError(rt)
+	}
 }
