@@ -257,7 +257,7 @@ func GetScsiDevicePathAndDiskNumberFromControllerLUN(ctx context.Context, contro
 		}
 
 		// TODO(ambarve): is comparing controller with port number the correct way?
-		if scsiAddr.Lun == LUN { //Commenting just for testing on local vm  && scsiAddr.PortNumber == controller {
+		if scsiAddr.Lun == LUN && scsiAddr.PortNumber == controller {
 			// get the disk number
 			var bytesReturned uint32
 			var deviceNumber STORAGE_DEVICE_NUMBER
