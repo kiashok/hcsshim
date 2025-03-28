@@ -1,5 +1,5 @@
-//go:build linux && rego
-// +build linux,rego
+//go:build rego
+// +build rego
 
 package securitypolicy
 
@@ -15,7 +15,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/opencontainers/runc/libcontainer/user"
+	"github.com/Microsoft/hcsshim/internal/guestpath"
+	"github.com/Microsoft/hcsshim/internal/log"
+	rpi "github.com/Microsoft/hcsshim/internal/regopolicyinterpreter"
+	"github.com/moby/sys/user"
 	oci "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 
@@ -720,8 +723,8 @@ func (policy *regoEnforcer) EnforceCreateContainerPolicy(
 		"argList":              argList,
 		"envList":              envList,
 		"workingDir":           workingDir,
-		"sandboxDir":           specGuest.SandboxMountsDir(sandboxID),
-		"hugePagesDir":         specGuest.HugePagesMountsDir(sandboxID),
+		"sandboxDir":           SandboxMountsDir(sandboxID),
+		"hugePagesDir":         HugePagesMountsDir(sandboxID),
 		"mounts":               appendMountData([]interface{}{}, mounts),
 		"privileged":           privileged,
 		"noNewPrivileges":      noNewPrivileges,
