@@ -252,6 +252,15 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW) (*
 				DWordValue: 16,
 				Type_:      "DWord",
 			},
+			hcsschema.RegistryValue{
+				Key: &hcsschema.RegistryKey{
+					Hive: "System",
+					Name: "CurrentControlSet\\Services\\KernelFSFormatter",
+				},
+				Name:       "Start",
+				DWordValue: 2,
+				Type_:      "DWord",
+			},
 		)
 	}
 

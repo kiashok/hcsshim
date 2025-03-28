@@ -413,11 +413,11 @@ func mountHypervIsolatedWCIFSLayers(ctx context.Context, l *wcowWCIFSLayers, vm 
 				}
 		    }
 	*/
-	/*
-		if vm.WCOWconfidentialUVMOptions != nil && vm.WCOWconfidentialUVMOptions.WCOWSecurityPolicy != "" {
-			mountConfig.FormatWithRefs = true
-		}
-	*/
+
+	if vm.WCOWconfidentialUVMOptions != nil && vm.WCOWconfidentialUVMOptions.WCOWSecurityPolicy != "" {
+		mountConfig.FormatWithRefs = true
+	}
+
 	scsiMount, err := vm.SCSIManager.AddVirtualDisk(ctx, hostPath, false, vm.ID(), "", &mountConfig)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add SCSI scratch VHD: %w", err)
