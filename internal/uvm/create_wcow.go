@@ -22,6 +22,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/processorinfo"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestrequest"
+	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/security"
 	"github.com/Microsoft/hcsshim/internal/uvm/scsi"
@@ -30,9 +31,10 @@ import (
 )
 
 type ConfidentialWCOWOptions struct {
-	GuestStateFilePath    string // The vmgs file path
-	SecurityPolicyEnabled bool   // Set when there is a security policy to apply on actual SNP hardware, use this rathen than checking the string length
-	SecurityPolicy        string // Optional security policy
+	GuestStateFilePath     string // The vmgs file path
+	SecurityPolicyEnabled  bool   // Set when there is a security policy to apply on actual SNP hardware, use this rathen than checking the string length
+	SecurityPolicy         string // Optional security policy
+	SecurityPolicyEnforcer string
 
 	/* Below options are only included for testing/debugging purposes - shouldn't be used in regular scenarios */
 	IsolationType      string
@@ -57,6 +59,15 @@ type OptionsWCOW struct {
 	AdditionalRegistryKeys []hcsschema.RegistryValue
 }
 
+// WindowsSidecarGcsHvsockServiceID is the hvsock service ID that the Windows GCS
+// sidecar will connect to. This is only used in the confidential mode.
+var windowsSidecarGcsHvsockServiceID = guid.GUID{
+	Data1: 0xae8da506,
+	Data2: 0xa019,
+	Data3: 0x4553,
+	Data4: [8]uint8{0xa5, 0x2b, 0x90, 0x2b, 0xc0, 0xfa, 0x04, 0x11},
+}
+
 // NewDefaultOptionsWCOW creates the default options for a bootable version of
 // WCOW. The caller `MUST` set the `BootFiles` on the returned value.
 //
@@ -70,6 +81,41 @@ func NewDefaultOptionsWCOW(id, owner string) *OptionsWCOW {
 		AdditionalRegistryKeys:  []hcsschema.RegistryValue{},
 		ConfidentialWCOWOptions: &ConfidentialWCOWOptions{},
 	}
+}
+
+// SetDefaultConfidentialWCOWBootConfig updates the given WCOW UVM creation options (with the
+// default values) so that the created UVM does a confidential boot.
+func SetDefaultConfidentialWCOWBootConfig(opts *OptionsWCOW) error {
+	selfDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path to shim directory: %w", err)
+	}
+
+	bootDir := filepath.Join(selfDir, "WindowsBootFiles", "confidential")
+	opts.GuestStateFilePath = filepath.Join(bootDir, "cwcow.vmgs")
+	opts.BootFiles = &WCOWBootFiles{
+		BootType: BlockCIMBoot,
+		BlockCIMFiles: &BlockCIMBootFiles{
+			BootCIMVHDPath: filepath.Join(bootDir, "rootfs.vhd"),
+			EFIVHDPath:     filepath.Join(bootDir, "boot.vhd"),
+			ScratchVHDPath: filepath.Join(bootDir, "scratch.vhd"),
+		},
+	}
+	for _, path := range []string{
+		opts.GuestStateFilePath,
+		opts.BootFiles.BlockCIMFiles.BootCIMVHDPath,
+		opts.BootFiles.BlockCIMFiles.EFIVHDPath,
+		opts.BootFiles.BlockCIMFiles.ScratchVHDPath} {
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("failed to stat boot file `%s` for confidential WCOW: %w", path, err)
+		}
+	}
+
+	//TODO(ambarve): for testing only remove later
+	opts.IsolationType = "GuestStateOnly"
+	opts.DisableSecureBoot = true
+	opts.ConsolePipe = "\\\\.\\pipe\\uvmpipe"
+	return nil
 }
 
 // startExternalGcsListener connects to the GCS service running inside the
@@ -328,10 +374,6 @@ func prepareSecurityConfigDoc(ctx context.Context, uvm *UtilityVM, opts *Options
 		doc.VirtualMachine.SecuritySettings.Isolation.IsolationType = opts.IsolationType
 	}
 
-	if err := wclayer.GrantVmAccess(ctx, uvm.id, opts.GuestStateFilePath); err != nil {
-		return nil, errors.Wrap(err, "failed to grant vm access to guest state file")
-	}
-
 	doc.VirtualMachine.GuestState = &hcsschema.GuestState{
 		GuestStateFilePath: opts.GuestStateFilePath,
 		GuestStateFileType: "BlockStorage",
@@ -478,6 +520,11 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 
 	var doc *hcsschema.ComputeSystem
 	if opts.SecurityPolicyEnabled {
+		uvm.WCOWconfidentialUVMOptions = &guestresource.WCOWConfidentialOptions{
+			WCOWSecurityPolicyEnabled:  true,
+			WCOWSecurityPolicy:         opts.SecurityPolicy,
+			WCOWSecurityPolicyEnforcer: opts.SecurityPolicyEnforcer,
+		}
 		doc, err = prepareSecurityConfigDoc(ctx, uvm, opts)
 		log.G(ctx).Tracef("CreateWCOW prepareSecurityConfigDoc result doc: %v err %v", doc, err)
 	} else {
@@ -495,7 +542,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 
 	gcsServiceID := prot.WindowsGcsHvsockServiceID
 	if opts.SecurityPolicyEnabled {
-		gcsServiceID = prot.WindowsSidecarGcsHvsockServiceID
+		gcsServiceID = windowsSidecarGcsHvsockServiceID
 	}
 
 	if err = uvm.startExternalGcsListener(ctx, gcsServiceID); err != nil {

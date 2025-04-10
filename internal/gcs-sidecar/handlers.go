@@ -4,7 +4,6 @@
 package bridge
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,7 +21,6 @@ import (
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
 	"github.com/Microsoft/hcsshim/internal/windevice"
 	"github.com/Microsoft/hcsshim/pkg/cimfs"
-	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
 	"github.com/pkg/errors"
 )
 
@@ -101,9 +99,11 @@ func (b *Bridge) shutdownGraceful(req *request) (err error) {
 	// TODO (kiashok/Mahati): Since gcs-sidecar can be used for all types of windows
 	// containers, it is important to check if we want to
 	// enforce policy or not.
-	b.hostState.securityPolicyEnforcer.EnforceShutdownContainerPolicy(req.ctx, r.ContainerID)
-	if err != nil {
-		return fmt.Errorf("rpcShudownGraceful operation not allowed: %v", err)
+	if b.hostState.isSecurityPolicyEnforcerInitialized() {
+		b.hostState.securityPolicyEnforcer.EnforceShutdownContainerPolicy(req.ctx, r.ContainerID)
+		if err != nil {
+			return fmt.Errorf("shutdownGraceful operation not allowed: %v", err)
+		}
 	}
 
 	b.forwardRequestToGcs(req)
@@ -292,6 +292,10 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 		guestRequestType = guestrequest.RequestTypeAdd
 	}
 
+	if guestRequestType == "" {
+		guestRequestType = guestrequest.RequestTypeAdd
+	}
+
 	switch guestRequestType {
 	case guestrequest.RequestTypeAdd:
 	case guestrequest.RequestTypeRemove:
@@ -370,12 +374,12 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 			}
 			if len(layerCIMs) > 1 {
 				// Get the topmost merge CIM and invoke the MountMergedBlockCIMs
-				_, err := cimfs.MountMergedBlockCIMs(layerCIMs[0], layerCIMs[1:], wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGUID)
+				_, err := cimfs.MountMergedBlockCIMs(layerCIMs[0], layerCIMs[1:], wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGuid)
 				if err != nil {
 					return fmt.Errorf("error mounting multilayer block cims: %w", err)
 				}
 			} else {
-				_, err := cimfs.Mount(filepath.Join(layerCIMs[0].BlockPath, layerCIMs[0].CimName), wcowBlockCimMounts.VolumeGUID, wcowBlockCimMounts.MountFlags)
+				_, err := cimfs.Mount(filepath.Join(layerCIMs[0].BlockPath, layerCIMs[0].CimName), wcowBlockCimMounts.VolumeGuid, wcowBlockCimMounts.MountFlags)
 				if err != nil {
 					return fmt.Errorf("error mounting merged block cims: %w", err)
 				}
@@ -401,9 +405,11 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 			// check that this is not denied by policy
 			// TODO: modify gcs-sidecar code to pass context across all calls
 			// TODO: Update modifyCombinedLayers with verified CimFS API
-			policy_err := modifyCombinedLayers(ctx, containerID, guestRequestType, settings.CombinedLayers, b.hostState.securityPolicyEnforcer)
-			if policy_err != nil {
-				return errors.Wrapf(policy_err, "CimFS layer mount is denied by policy: %v", settings)
+			if b.hostState.isSecurityPolicyEnforcerInitialized() {
+				policy_err := modifyCombinedLayers(ctx, containerID, guestRequestType, settings.CombinedLayers, b.hostState.securityPolicyEnforcer)
+				if policy_err != nil {
+					return errors.Wrapf(policy_err, "CimFS layer mount is denied by policy: %v", settings)
+				}
 			}
 
 			// TODO: Update modifyCombinedLayers with verified CimFS API
@@ -443,12 +449,7 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 			wcowMappedVirtualDisk := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWMappedVirtualDisk)
 			log.G(ctx).Tracef("ResourceTypeMappedVirtualDiskForContainerScratch: { %v }", wcowMappedVirtualDisk)
 
-			policy_err := modifyMappedVirtualDisk(ctx, guestRequestType, wcowMappedVirtualDisk, b.hostState.securityPolicyEnforcer)
-			if policy_err != nil {
-				return errors.Wrapf(policy_err, "Mount device denied by policy %v", wcowMappedVirtualDisk)
-			}
-
-			// 1. TODO (kiashok/Mahati): Need to enforce policy before calling into fsFormatter
+			// 1. TODO (Mahati): Need to enforce policy before calling into fsFormatter
 			// 2. Call fsFormatter to format the scratch disk.
 			// This will return the volume path of the mounted scratch.
 			// Scratch disk should be >= 30 GB for refs formatter to work.
@@ -508,47 +509,4 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 
 	b.forwardRequestToGcs(req)
 	return nil
-}
-
-func modifyMappedVirtualDisk(
-	ctx context.Context,
-	rt guestrequest.RequestType,
-	mvd *guestresource.WCOWMappedVirtualDisk,
-	securityPolicy securitypolicy.SecurityPolicyEnforcer,
-) (err error) {
-	switch rt {
-	case guestrequest.RequestTypeAdd:
-		// TODO: Modify and update this with verified Cims API
-		return securityPolicy.EnforceDeviceMountPolicy(ctx, mvd.ContainerPath, "hash")
-	case guestrequest.RequestTypeRemove:
-		// TODO: Modify and update this with verified Cims API
-		return securityPolicy.EnforceDeviceUnmountPolicy(ctx, mvd.ContainerPath)
-	default:
-		return newInvalidRequestTypeError(rt)
-	}
-}
-
-func modifyCombinedLayers(
-	ctx context.Context,
-	containerID string,
-	rt guestrequest.RequestType,
-	cl guestresource.WCOWCombinedLayers,
-	securityPolicy securitypolicy.SecurityPolicyEnforcer,
-) (err error) {
-	switch rt {
-	case guestrequest.RequestTypeAdd:
-		layerPaths := make([]string, len(cl.Layers))
-		for i, layer := range cl.Layers {
-			layerPaths[i] = layer.Path
-		}
-		return securityPolicy.EnforceOverlayMountPolicy(ctx, containerID, layerPaths, cl.ContainerRootPath)
-	case guestrequest.RequestTypeRemove:
-		return securityPolicy.EnforceOverlayUnmountPolicy(ctx, cl.ContainerRootPath)
-	default:
-		return newInvalidRequestTypeError(rt)
-	}
-}
-
-func newInvalidRequestTypeError(rt guestrequest.RequestType) error {
-	return errors.Errorf("the RequestType %q is not supported", rt)
 }
