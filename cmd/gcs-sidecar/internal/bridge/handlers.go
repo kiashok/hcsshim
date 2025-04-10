@@ -9,13 +9,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	hcsschema "github.com/Microsoft/hcsshim/cmd/gcs-sidecar/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/cmd/gcs-sidecar/internal/hcs/schema2/resourcepaths"
 	"github.com/Microsoft/hcsshim/cmd/gcs-sidecar/internal/protocol/guestrequest"
 	"github.com/Microsoft/hcsshim/cmd/gcs-sidecar/internal/protocol/guestresource"
 	"github.com/Microsoft/hcsshim/hcn"
+	"github.com/Microsoft/hcsshim/internal/fsformatter"
+	"github.com/Microsoft/hcsshim/pkg/cimfs"
 )
 
 // Current intent of these handler functions is to call the security policy
@@ -598,10 +603,242 @@ func (b *Bridge) updateContainer(req *request) error {
 
 func (b *Bridge) lifecycleNotification(req *request) error {
 	// No callers in the code for rpcLifecycleNotification
+	b.forwardRequestToGcs(req)
+	return nil
+}
 
-	// If we've reached here, means the policy has allowed it.
-	// So forward msg to inbox GCS.
-	b.sendToGCSChan <- *req
+func (b *Bridge) modifySettings(req *request) error {
+	log.Printf("\n, modifySettings:Header {Type: %v Size: %v ID: %v }\n msg: %v \n", req.header.Type, req.header.Size, req.header.ID, string(req.message))
+	modifyRequest, err := unmarshalContainerModifySettings(req)
+	if err != nil {
+		return err
+	}
+	modifyGuestSettingsRequest := modifyRequest.Request.(*guestrequest.ModificationRequest)
+	guestResourceType := modifyGuestSettingsRequest.ResourceType
+	guestRequestType := modifyGuestSettingsRequest.RequestType // add, remove, preadd, update
+	log.Printf("rpcModifySettings: guestRequest.ModificationRequest { resourceType: %v \n, requestType: %v", guestResourceType, guestRequestType)
 
+	// TODO: Do we need to validate request types?
+	switch guestRequestType {
+	case guestrequest.RequestTypeAdd:
+	case guestrequest.RequestTypeRemove:
+	case guestrequest.RequestTypePreAdd:
+	case guestrequest.RequestTypeUpdate:
+	default:
+		log.Printf("\n Invald guestRequestType: %v", guestRequestType)
+		return fmt.Errorf("invald guestRequestType %v", guestRequestType)
+	}
+
+	if guestResourceType != "" {
+		switch guestResourceType {
+		case guestresource.ResourceTypeCombinedLayers:
+			settings := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWCombinedLayers)
+			log.Printf(", WCOWCombinedLayers {ContainerRootPath: %v, Layers: %v, ScratchPath: %v} \n", settings.ContainerRootPath, settings.Layers, settings.ScratchPath)
+
+		case guestresource.ResourceTypeNetworkNamespace:
+			settings := modifyGuestSettingsRequest.Settings.(*hcn.HostComputeNamespace)
+			log.Printf(", HostComputeNamespaces { %v} \n", settings)
+
+		case guestresource.ResourceTypeNetwork:
+			settings := modifyGuestSettingsRequest.Settings.(*guestrequest.NetworkModifyRequest)
+			log.Printf(", NetworkModifyRequest { %v} \n", settings)
+
+		case guestresource.ResourceTypeMappedVirtualDisk:
+			wcowMappedVirtualDisk := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWMappedVirtualDisk)
+			// TODO: For verified cims (Cimfs API not ready yet)
+			log.Printf(", wcowMappedVirtualDisk { %v} \n", wcowMappedVirtualDisk)
+
+		case guestresource.ResourceTypeHvSocket:
+			log.Printf("guestresource.ResourceTypeHvSocket \n")
+			hvSocketAddress := modifyGuestSettingsRequest.Settings.(*hcsschema.HvSocketAddress)
+			log.Printf(", hvSocketAddress { %v} \n", hvSocketAddress)
+
+		case guestresource.ResourceTypeMappedDirectory:
+			log.Printf("guestresource.ResourceTypeMappedDirectory \n")
+			settings := modifyGuestSettingsRequest.Settings.(*hcsschema.MappedDirectory)
+			log.Printf(", hcsschema.MappedDirectory { %v } \n", settings)
+
+		case guestresource.ResourceTypeSecurityPolicy:
+			securityPolicyRequest := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWConfidentialOptions)
+			log.Printf(", WCOWConfidentialOptions: { %v} \n", securityPolicyRequest)
+			_ = b.hostState.SetWCOWConfidentialUVMOptions( /*ctx, */ securityPolicyRequest)
+
+			// Send response back to shim
+			resp := &responseBase{
+				Result:     0, // 0 means success
+				ActivityID: req.activityID,
+			}
+			err := b.sendResponseToShim(rpcModifySettings, req.header.ID, resp)
+			if err != nil {
+				log.Printf("error sending response to hcsshim: %v", err)
+				return fmt.Errorf("error sending early reply back to hcsshim")
+			}
+			return nil
+
+		case guestresource.ResourceTypeWCOWBlockCims:
+			// This is request to mount the merged cim at given volumeGUID
+			wcowBlockCimMounts := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWBlockCIMMounts)
+			log.Printf(", WCOWBlockCIMMounts { %v} \n", wcowBlockCimMounts)
+
+			// The block device takes some time to show up, temporary hack
+			time.Sleep(1 * time.Second)
+
+			var layerCIMs []*cimfs.BlockCIM
+			ctx := context.Background()
+			for _, blockCimDevice := range wcowBlockCimMounts.BlockCIMs {
+				// Get the scsi device path for the blockCim lun
+				scsiDevPath, _, err := windevice.GetScsiDevicePathAndDiskNumberFromControllerLUN(
+					ctx,
+					0, /* controller is always 0 for wcow */
+					uint8(blockCimDevice.Lun))
+				if err != nil {
+					log.Printf("err getting scsiDevPath: %v", err)
+					return err
+				}
+				layerCim := cimfs.BlockCIM{
+					Type:      cimfs.BlockCIMTypeDevice,
+					BlockPath: scsiDevPath,
+					CimName:   blockCimDevice.CimName,
+				}
+				layerCIMs = append(layerCIMs, &layerCim)
+
+			}
+			if len(layerCIMs) > 1 {
+				// Get the topmost merge CIM and invoke the MountMergedBlockCIMs
+				_, err := cimfs.MountMergedBlockCIMs(layerCIMs[0], layerCIMs[1:], wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGuid)
+				if err != nil {
+					return fmt.Errorf("error mounting merged block cims: %v", err)
+				}
+			} else {
+				_, err := cimfs.Mount(filepath.Join(layerCIMs[0].BlockPath, layerCIMs[0].CimName), wcowBlockCimMounts.VolumeGuid, wcowBlockCimMounts.MountFlags)
+				if err != nil {
+					return fmt.Errorf("error mounting merged block cims: %v", err)
+				}
+			}
+
+			// Send response back to shim
+			resp := &responseBase{
+				Result:     0, // 0 means success
+				ActivityID: req.activityID,
+			}
+			err = b.sendResponseToShim(rpcModifySettings, req.header.ID, resp)
+			if err != nil {
+				log.Printf("error sending response to hcsshim: %v", err)
+				return fmt.Errorf("error sending early reply back to hcsshim")
+			}
+			return nil
+
+		case guestresource.ResourceTypeCWCOWCombinedLayers:
+			settings := modifyGuestSettingsRequest.Settings.(*guestresource.CWCOWCombinedLayers)
+			containerID := settings.ContainerID
+			log.Printf(", CWCOWCombinedLayers {ContainerID: %v {ContainerRootPath: %v, Layers: %v, ScratchPath: %v}} \n",
+				containerID, settings.CombinedLayers.ContainerRootPath, settings.CombinedLayers.Layers, settings.CombinedLayers.ScratchPath)
+
+			// TODO: Update modifyCombinedLayers with verified CimFS API
+			if b.hostState.isSecurityPolicyEnforcerInitialized() {
+				policy_err := modifyCombinedLayers(req.ctx, containerID, guestRequestType, settings.CombinedLayers, b.hostState.securityPolicyEnforcer)
+				if policy_err != nil {
+					return fmt.Errorf("CimFS layer mount is denied by policy: %v", modifyRequest)
+				}
+			}
+
+			// Reconstruct WCOWCombinedLayers{} and req before forwarding to GCS
+			// as GCS does not understand containerID in CombinedLayers request
+			modifyGuestSettingsRequest.ResourceType = guestresource.ResourceTypeCombinedLayers
+			modifyGuestSettingsRequest.Settings = settings.CombinedLayers
+			modifyRequest.Request = modifyGuestSettingsRequest
+			buf, err := json.Marshal(modifyRequest)
+			if err != nil {
+				return fmt.Errorf("failed to marshal rpcModifySettings: %v", req)
+			}
+
+			// The following two folders are expected to be present in thr scratch.
+			// But since we have just formatted the scratch we would need to
+			// create them manually.
+			sandboxStateDirectory := filepath.Join(settings.CombinedLayers.ContainerRootPath, sandboxStateDirName)
+			err = os.Mkdir(sandboxStateDirectory, 0777)
+			if err != nil {
+				log.Printf("unexpected error creating sandboxStateDirectory: %v", err)
+				return fmt.Errorf("unexpected error sandboxStateDirectory: %v", err)
+			}
+
+			hivesDirectory := filepath.Join(settings.CombinedLayers.ContainerRootPath, hivesDirName)
+			err = os.Mkdir(hivesDirectory, 0777)
+			if err != nil {
+				log.Printf("unexpected error creating hivesDirectory: %v", err)
+				return fmt.Errorf("unexpected error hivesDirectory: %v", err)
+			}
+
+			var newRequest request
+			newRequest.header = req.header
+			newRequest.header.Size = uint32(len(buf)) + hdrSize
+			newRequest.message = buf
+			req = &newRequest
+
+		case guestresource.ResourceTypeMappedVirtualDiskForContainerScratch:
+			wcowMappedVirtualDisk := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWMappedVirtualDisk)
+			log.Printf(", wcowMappedVirtualDisk { %v} \n", wcowMappedVirtualDisk)
+
+			// 1.TODO: Need to enforce policy before calling into fsFormatter
+			// 2. Then call fsFormatter to format the scratch disk.
+			// This will return the volume path of the mounted scratch.
+			// Scratch disk should be >= 30 GB for refs formatter to work.
+
+			// fsFormatter understands only virtualDevObjectPathFormat. Therefore fetch the
+			// disk number for the corresponding lun
+			var diskNumber uint64
+			// It could take a few seconds for the attached scsi disk
+			// to show up inside the UVM. Therefore adding retry logic
+			// with delay here.
+			for i := 0; i < 5; i++ {
+				time.Sleep(5 * time.Second)
+				_, diskNumber, err := windevice.GetScsiDevicePathAndDiskNumberFromControllerLUN(req.ctx,
+					0, /* Only one controller allowed in wcow hyperv */
+					uint8(wcowMappedVirtualDisk.Lun))
+				if err != nil {
+					if i == 4 {
+						// bail out
+						log.Printf("error getting diskNumber for LUN %d, err : %v", wcowMappedVirtualDisk.Lun, err)
+						return fmt.Errorf("error getting diskNumber for LUN %d", wcowMappedVirtualDisk.Lun)
+					}
+					continue
+				} else {
+					log.Printf("DiskNumber of lun %d is:  %d", wcowMappedVirtualDisk.Lun, diskNumber)
+				}
+			}
+			diskPath := fmt.Sprintf(fsformatter.VirtualDevObjectPathFormat, diskNumber)
+			log.Printf("\n diskPath: %v, diskNumber: %v ", diskPath, diskNumber)
+			mountedVolumePath, err := windevice.InvokeFsFormatter(req.ctx, diskPath)
+			if err != nil {
+				log.Printf("\n InvokeFsFormatter returned err: %v", err)
+				return err
+			}
+			log.Printf("\n mountedVolumePath returned from InvokeFsFormatter: %v", mountedVolumePath)
+
+			// Just forward the req as is to inbox gcs and let it retreive the volume.
+			// While forwarding request to inbox gcs, make sure to replace
+			// the resourceType to ResourceTypeMappedVirtualDisk that it
+			// understands.
+			modifyGuestSettingsRequest.ResourceType = guestresource.ResourceTypeMappedVirtualDisk
+			modifyRequest.Request = modifyGuestSettingsRequest
+			buf, err := json.Marshal(modifyRequest)
+			if err != nil {
+				return fmt.Errorf("failed to marshal rpcModifySettings: %v", req)
+			}
+
+			var newRequest request
+			newRequest.header = req.header
+			newRequest.header.Size = uint32(len(buf))
+			newRequest.message = buf
+			req = &newRequest
+
+		default:
+			// Invalid request
+			log.Printf("\n Invald modifySettingsRequest: %v", guestResourceType)
+			return fmt.Errorf("invald modifySettingsRequest: %v", guestResourceType)
+		}
+	}
+
+	b.forwardRequestToGcs(req)
 	return nil
 }
