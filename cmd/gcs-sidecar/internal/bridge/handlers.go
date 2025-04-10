@@ -316,10 +316,12 @@ func (b *Bridge) modifySettings(req *request) error {
 			wcowBlockCimMounts := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWBlockCIMMounts)
 			log.Printf(", WCOWBlockCIMMounts { %v} \n", wcowBlockCimMounts)
 
-			var mergedCim cimfs.BlockCIM
-			var sourceCims []*cimfs.BlockCIM
+			// The block device takes some time to show up, temporary hack
+			time.Sleep(1 * time.Second)
+
+			var layerCIMs []*cimfs.BlockCIM
 			ctx := context.Background()
-			for i, blockCimDevice := range wcowBlockCimMounts.BlockCIMs {
+			for _, blockCimDevice := range wcowBlockCimMounts.BlockCIMs {
 				// Get the scsi device path for the blockCim lun
 				scsiDevPath, _, err := windevice.GetScsiDevicePathAndDiskNumberFromControllerLUN(
 					ctx,
@@ -329,28 +331,27 @@ func (b *Bridge) modifySettings(req *request) error {
 					log.Printf("err getting scsiDevPath: %v", err)
 					return err
 				}
-				if i == 0 {
-					// BlockCIMs should be ordered from merged CIM followed by Layer n .. layer 1
-					mergedCim = cimfs.BlockCIM{
-						Type:      cimfs.BlockCIMTypeDevice,
-						BlockPath: scsiDevPath,
-						CimName:   blockCimDevice.CimName,
-					}
-				} else {
-					layerCim := cimfs.BlockCIM{
-						Type:      cimfs.BlockCIMTypeDevice,
-						BlockPath: scsiDevPath,
-						CimName:   blockCimDevice.CimName,
-					}
-					sourceCims = append(sourceCims, &layerCim)
+				layerCim := cimfs.BlockCIM{
+					Type:      cimfs.BlockCIMTypeDevice,
+					BlockPath: scsiDevPath,
+					CimName:   blockCimDevice.CimName,
+				}
+				layerCIMs = append(layerCIMs, &layerCim)
+
+			}
+			if len(layerCIMs) > 1 {
+				// Get the topmost merge CIM and invoke the MountMergedBlockCIMs
+				_, err := cimfs.MountMergedBlockCIMs(layerCIMs[0], layerCIMs[1:], wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGuid)
+				if err != nil {
+					return fmt.Errorf("error mounting merged block cims: %v", err)
+				}
+			} else {
+				_, err := cimfs.Mount(filepath.Join(layerCIMs[0].BlockPath, layerCIMs[0].CimName), wcowBlockCimMounts.VolumeGuid, wcowBlockCimMounts.MountFlags)
+				if err != nil {
+					return fmt.Errorf("error mounting merged block cims: %v", err)
 				}
 			}
 
-			// Get the topmost merge CIM and invoke the MountMergedBlockCIMs
-			_, err := cimfs.MountMergedBlockCIMs(&mergedCim, sourceCims, wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGuid)
-			if err != nil {
-				return fmt.Errorf("error mounting merged block cims: %v", err)
-			}
 			// Send response back to shim
 			resp := &responseBase{
 				Result:     0, // 0 means success
