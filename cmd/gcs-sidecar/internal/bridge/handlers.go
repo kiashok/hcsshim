@@ -427,8 +427,8 @@ func (b *Bridge) modifySettings(req *request) error {
 			// to show up inside the UVM. Therefore adding retry logic
 			// with delay here.
 			for i := 0; i < 5; i++ {
-				time.Sleep(5 * time.Second)
-				_, diskNumber, err := windevice.GetScsiDevicePathAndDiskNumberFromControllerLUN(req.ctx,
+				time.Sleep(1 * time.Second)
+				_, diskNumber, err = windevice.GetScsiDevicePathAndDiskNumberFromControllerLUN(req.ctx,
 					0, /* Only one controller allowed in wcow hyperv */
 					uint8(wcowMappedVirtualDisk.Lun))
 				if err != nil {
@@ -440,6 +440,7 @@ func (b *Bridge) modifySettings(req *request) error {
 					continue
 				} else {
 					log.Printf("DiskNumber of lun %d is:  %d", wcowMappedVirtualDisk.Lun, diskNumber)
+					break
 				}
 			}
 			diskPath := fmt.Sprintf(fsformatter.VirtualDevObjectPathFormat, diskNumber)
@@ -464,7 +465,7 @@ func (b *Bridge) modifySettings(req *request) error {
 
 			var newRequest request
 			newRequest.header = req.header
-			newRequest.header.Size = uint32(len(buf))
+			newRequest.header.Size = uint32(len(buf)) + hdrSize
 			newRequest.message = buf
 			req = &newRequest
 

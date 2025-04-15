@@ -13,6 +13,7 @@ import (
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
 	"github.com/Microsoft/hcsshim/internal/gcs"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 
@@ -131,13 +132,19 @@ func main() {
 	// Ignore the following log when running sidecar outside the uvm.
 	// Logs will be at C:\\gcs-sidecar-logs-redirect.log.
 	// See internal/uvm/start.go#252 for more details.
-	f, err := os.OpenFile("C:\\gcs-sidecar-logs.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile("C:\\gcs-sidecar-logs.log", os.O_RDWR|os.O_CREATE|os.O_SYNC|os.O_TRUNC, 0666)
 	if err != nil {
 		fmt.Printf("error opening file: %v", err)
 	}
 	defer f.Close()
 
 	log.SetOutput(f)
+
+	if err := windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(f.Fd())); err != nil {
+		log.Printf("error redirecting handle: %s", err)
+		return
+	}
+	os.Stderr = f
 
 	chsrv := make(chan error)
 	go func() {

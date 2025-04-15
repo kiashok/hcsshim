@@ -160,6 +160,7 @@ func unmarshalContainerModifySettings(req *request) (*containerModifySettings, e
 			log.Printf("invalid ResourceTypeMappedVirtualDisk request %v", r)
 			return nil, fmt.Errorf("invalid ResourceTypeMappedVirtualDisk request %v", r)
 		}
+		modifyGuestSettingsRequest.Settings = wcowMappedVirtualDisk
 
 	case guestresource.ResourceTypeWCOWBlockCims:
 		wcowBlockCimMounts := &guestresource.WCOWBlockCIMMounts{}
@@ -167,6 +168,7 @@ func unmarshalContainerModifySettings(req *request) (*containerModifySettings, e
 			log.Printf("invalid ResourceTypeWCOWBlockCims request %v", r)
 			return nil, fmt.Errorf("invalid ResourceTypeWCOWBlockCims request %v", r)
 		}
+		modifyGuestSettingsRequest.Settings = wcowBlockCimMounts
 
 	default:
 		// Invalid request
