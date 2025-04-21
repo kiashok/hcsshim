@@ -24,18 +24,6 @@ import (
 	"github.com/Microsoft/hcsshim/internal/oc"
 )
 
-const (
-	hdrSize    = 16
-	hdrOffType = 0
-	hdrOffSize = 4
-	hdrOffID   = 8
-
-	// maxMsgSize is the maximum size of an incoming message. This is not
-	// enforced by the guest today but some maximum must be set to avoid
-	// unbounded allocations.
-	maxMsgSize = 0x10000
-)
-
 type requestMessage interface {
 	Base() *prot.RequestBase
 }
@@ -264,22 +252,22 @@ func readMessage(r io.Reader) (int64, prot.MsgType, []byte, error) {
 	_, span := oc.StartSpan(context.Background(), "bridge receive read message", oc.WithClientSpanKind)
 	defer span.End()
 
-	var h [hdrSize]byte
+	var h [prot.HdrSize]byte
 	_, err := io.ReadFull(r, h[:])
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	typ := prot.MsgType(binary.LittleEndian.Uint32(h[hdrOffType:]))
-	n := binary.LittleEndian.Uint32(h[hdrOffSize:])
-	id := int64(binary.LittleEndian.Uint64(h[hdrOffID:]))
+	typ := prot.MsgType(binary.LittleEndian.Uint32(h[prot.HdrOffType:]))
+	n := binary.LittleEndian.Uint32(h[prot.HdrOffSize:])
+	id := int64(binary.LittleEndian.Uint64(h[prot.HdrOffID:]))
 	span.AddAttributes(
 		trace.StringAttribute("type", typ.String()),
 		trace.Int64Attribute("message-id", id))
 
-	if n < hdrSize || n > maxMsgSize {
+	if n < prot.HdrSize || n > prot.MaxMsgSize {
 		return 0, 0, nil, fmt.Errorf("invalid message size %d", n)
 	}
-	n -= hdrSize
+	n -= prot.HdrSize
 	b := make([]byte, n)
 	_, err = io.ReadFull(r, b)
 	if err != nil {
@@ -392,19 +380,19 @@ func (brdg *bridge) writeMessage(buf *bytes.Buffer, enc *json.Encoder, typ prot.
 		trace.Int64Attribute("message-id", id))
 
 	// Prepare the buffer with the message.
-	var h [hdrSize]byte
-	binary.LittleEndian.PutUint32(h[hdrOffType:], uint32(typ))
-	binary.LittleEndian.PutUint64(h[hdrOffID:], uint64(id))
+	var h [prot.HdrSize]byte
+	binary.LittleEndian.PutUint32(h[prot.HdrOffType:], uint32(typ))
+	binary.LittleEndian.PutUint64(h[prot.HdrOffID:], uint64(id))
 	buf.Write(h[:])
 	err = enc.Encode(req)
 	if err != nil {
 		return fmt.Errorf("bridge encode: %w", err)
 	}
 	// Update the message header with the size.
-	binary.LittleEndian.PutUint32(buf.Bytes()[hdrOffSize:], uint32(buf.Len()))
+	binary.LittleEndian.PutUint32(buf.Bytes()[prot.HdrOffSize:], uint32(buf.Len()))
 
 	if brdg.log.Logger.GetLevel() > logrus.DebugLevel {
-		b := buf.Bytes()[hdrSize:]
+		b := buf.Bytes()[prot.HdrSize:]
 		switch typ {
 		// container environment vars are in rpCreate for linux; rpcExecuteProcess for windows
 		case prot.MsgType(prot.RpcCreate) | prot.MsgTypeRequest:
