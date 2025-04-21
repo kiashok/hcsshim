@@ -1,7 +1,11 @@
 //go:build windows
 // +build windows
 
+<<<<<<<< HEAD:internal/gcs-sidecar/protocol.go
 package bridge
+========
+package prot
+>>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse):internal/gcs/prot/protocol.go
 
 import (
 	"encoding/json"
@@ -9,6 +13,11 @@ import (
 	"strconv"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
+<<<<<<<< HEAD:internal/gcs-sidecar/protocol.go
+========
+	"github.com/Microsoft/hcsshim/internal/bridgeutils/commonutils"
+	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
+>>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse):internal/gcs/prot/protocol.go
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 )
 
@@ -43,6 +52,7 @@ type MessageHeader struct {
 
 type msgType uint32
 
+<<<<<<<< HEAD:internal/gcs-sidecar/protocol.go
 func (typ msgType) String() string {
 	var s string
 	switch typ & msgTypeMask {
@@ -64,65 +74,78 @@ func (typ msgType) String() string {
 	}
 	s += rpcProc(typ &^ msgTypeMask).String()
 	return s + ")"
+========
+type AnyInString struct {
+	Value interface{}
 }
 
-type rpcProc uint32
+func (a *AnyInString) MarshalText() ([]byte, error) {
+	return json.Marshal(a.Value)
+}
+
+func (a *AnyInString) UnmarshalText(b []byte) error {
+	return json.Unmarshal(b, &a.Value)
+>>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse):internal/gcs/prot/protocol.go
+}
+
+type RpcProc uint32
 
 const (
-	rpcCreate rpcProc = (iota+1)<<8 | 1
-	rpcStart
-	rpcShutdownGraceful
-	rpcShutdownForced
-	rpcExecuteProcess
-	rpcWaitForProcess
-	rpcSignalProcess
-	rpcResizeConsole
-	rpcGetProperties
-	rpcModifySettings
-	rpcNegotiateProtocol
-	rpcDumpStacks
-	rpcDeleteContainerState
-	rpcUpdateContainer
-	rpcLifecycleNotification
+	RpcCreate RpcProc = (iota+1)<<8 | 1
+	RpcStart
+	RpcShutdownGraceful
+	RpcShutdownForced
+	RpcExecuteProcess
+	RpcWaitForProcess
+	RpcSignalProcess
+	RpcResizeConsole
+	RpcGetProperties
+	RpcModifySettings
+	RpcNegotiateProtocol
+	RpcDumpStacks
+	RpcDeleteContainerState
+	RpcUpdateContainer
+	RpcLifecycleNotification
 )
 
-func (rpc rpcProc) String() string {
+func (rpc RpcProc) String() string {
 	switch rpc {
-	case rpcCreate:
+	case RpcCreate:
 		return "Create"
-	case rpcStart:
+	case RpcStart:
 		return "Start"
-	case rpcShutdownGraceful:
+	case RpcShutdownGraceful:
 		return "ShutdownGraceful"
-	case rpcShutdownForced:
+	case RpcShutdownForced:
 		return "ShutdownForced"
-	case rpcExecuteProcess:
+	case RpcExecuteProcess:
 		return "ExecuteProcess"
-	case rpcWaitForProcess:
+	case RpcWaitForProcess:
 		return "WaitForProcess"
-	case rpcSignalProcess:
+	case RpcSignalProcess:
 		return "SignalProcess"
-	case rpcResizeConsole:
+	case RpcResizeConsole:
 		return "ResizeConsole"
-	case rpcGetProperties:
+	case RpcGetProperties:
 		return "GetProperties"
-	case rpcModifySettings:
+	case RpcModifySettings:
 		return "ModifySettings"
-	case rpcNegotiateProtocol:
+	case RpcNegotiateProtocol:
 		return "NegotiateProtocol"
-	case rpcDumpStacks:
+	case RpcDumpStacks:
 		return "DumpStacks"
-	case rpcDeleteContainerState:
+	case RpcDeleteContainerState:
 		return "DeleteContainerState"
-	case rpcUpdateContainer:
+	case RpcUpdateContainer:
 		return "UpdateContainer"
-	case rpcLifecycleNotification:
+	case RpcLifecycleNotification:
 		return "LifecycleNotification"
 	default:
 		return "0x" + strconv.FormatUint(uint64(rpc), 16)
 	}
 }
 
+<<<<<<<< HEAD:internal/gcs-sidecar/protocol.go
 type anyInString struct {
 	Value interface{}
 }
@@ -133,11 +156,45 @@ func (a *anyInString) MarshalText() ([]byte, error) {
 
 func (a *anyInString) UnmarshalText(b []byte) error {
 	return json.Unmarshal(b, &a.Value)
+========
+type MsgType uint32
+
+const (
+	MsgTypeRequest  MsgType = 0x10100000
+	MsgTypeResponse MsgType = 0x20100000
+	MsgTypeNotify   MsgType = 0x30100000
+	MsgTypeMask     MsgType = 0xfff00000
+
+	NotifyContainer = 1<<8 | 1
+)
+
+func (typ MsgType) String() string {
+	var s string
+	switch typ & MsgTypeMask {
+	case MsgTypeRequest:
+		s = "Request("
+	case MsgTypeResponse:
+		s = "Response("
+	case MsgTypeNotify:
+		s = "Notify("
+		switch typ - MsgTypeNotify {
+		case NotifyContainer:
+			s += "Container"
+		default:
+			s += fmt.Sprintf("%#x", uint32(typ))
+		}
+		return s + ")"
+	default:
+		return fmt.Sprintf("%#x", uint32(typ))
+	}
+	s += RpcProc(typ &^ MsgTypeMask).String()
+	return s + ")"
+>>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse):internal/gcs/prot/protocol.go
 }
 
-// ocspancontext is the internal JSON representation of the OpenCensus
+// Ocspancontext is the internal JSON representation of the OpenCensus
 // `trace.SpanContext` for fowarding to a GCS that supports it.
-type ocspancontext struct {
+type Ocspancontext struct {
 	// TraceID is the `hex` encoded string of the OpenCensus
 	// `SpanContext.TraceID` to propagate to the guest.
 	TraceID string `json:",omitempty"`
@@ -157,7 +214,7 @@ type ocspancontext struct {
 	Tracestate string `json:",omitempty"`
 }
 
-type requestBase struct {
+type RequestBase struct {
 	ContainerID string    `json:"ContainerId"`
 	ActivityID  guid.GUID `json:"ActivityId"`
 
@@ -167,9 +224,10 @@ type requestBase struct {
 	// NOTE: This is not a part of the protocol but because its a JSON protocol
 	// adding fields is a non-breaking change. If the guest supports it this is
 	// just additive context.
-	OpenCensusSpanContext *ocspancontext `json:"ocsc,omitempty"`
+	OpenCensusSpanContext *Ocspancontext `json:"ocsc,omitempty"`
 }
 
+<<<<<<<< HEAD:internal/gcs-sidecar/protocol.go
 type responseBase struct {
 	Result       int32         // HResult
 	ErrorMessage string        `json:",omitempty"`
@@ -197,10 +255,30 @@ type errorRecord struct {
 
 type negotiateProtocolRequest struct {
 	requestBase
+========
+func (req *RequestBase) Base() *RequestBase {
+	return req
+}
+
+type ResponseBase struct {
+	Result       int32                     // HResult
+	ErrorMessage string                    `json:",omitempty"`
+	ActivityID   guid.GUID                 `json:"ActivityId,omitempty"`
+	ErrorRecords []commonutils.ErrorRecord `json:",omitempty"`
+}
+
+func (resp *ResponseBase) Base() *ResponseBase {
+	return resp
+}
+
+type NegotiateProtocolRequest struct {
+	RequestBase
+>>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse):internal/gcs/prot/protocol.go
 	MinimumVersion uint32
 	MaximumVersion uint32
 }
 
+<<<<<<<< HEAD:internal/gcs-sidecar/protocol.go
 type hcsschemaVersion struct {
 	Major int32 `json:"Major,omitempty"`
 
@@ -219,71 +297,76 @@ type gcsCapabilities struct {
 
 type negotiateProtocolResponse struct {
 	responseBase
+========
+type NegotiateProtocolResponse struct {
+	ResponseBase
+>>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse):internal/gcs/prot/protocol.go
 	Version      uint32          `json:",omitempty"`
-	Capabilities gcsCapabilities `json:",omitempty"`
+	Capabilities GcsCapabilities `json:",omitempty"`
 }
 
-type dumpStacksRequest struct {
-	requestBase
+type DumpStacksRequest struct {
+	RequestBase
 }
 
-type dumpStacksResponse struct {
-	responseBase
+type DumpStacksResponse struct {
+	ResponseBase
 	GuestStacks string
 }
 
-type deleteContainerStateRequest struct {
-	requestBase
+type DeleteContainerStateRequest struct {
+	RequestBase
 }
 
-type containerCreate struct {
-	requestBase
-	ContainerConfig anyInString
+type ContainerCreate struct {
+	RequestBase
+	ContainerConfig AnyInString
 }
 
-type uvmConfig struct {
+type UvmConfig struct {
 	SystemType          string // must be "Container"
 	TimeZoneInformation *hcsschema.TimeZoneInformation
 }
 
-type containerNotification struct {
-	requestBase
+type ContainerNotification struct {
+	RequestBase
 	Type       string      // Compute.System.NotificationType
 	Operation  string      // Compute.System.ActiveOperation
 	Result     int32       // HResult
-	ResultInfo anyInString `json:",omitempty"`
+	ResultInfo AnyInString `json:",omitempty"`
 }
 
-type containerExecuteProcess struct {
-	requestBase
-	Settings executeProcessSettings
+type ContainerExecuteProcess struct {
+	RequestBase
+	Settings ExecuteProcessSettings
 }
 
-type executeProcessSettings struct {
-	ProcessParameters       anyInString
-	StdioRelaySettings      *executeProcessStdioRelaySettings      `json:",omitempty"`
-	VsockStdioRelaySettings *executeProcessVsockStdioRelaySettings `json:",omitempty"`
+type ExecuteProcessSettings struct {
+	ProcessParameters       AnyInString
+	StdioRelaySettings      *ExecuteProcessStdioRelaySettings      `json:",omitempty"`
+	VsockStdioRelaySettings *ExecuteProcessVsockStdioRelaySettings `json:",omitempty"`
 }
 
-type executeProcessStdioRelaySettings struct {
+type ExecuteProcessStdioRelaySettings struct {
 	StdIn  *guid.GUID `json:",omitempty"`
 	StdOut *guid.GUID `json:",omitempty"`
 	StdErr *guid.GUID `json:",omitempty"`
 }
 
-type executeProcessVsockStdioRelaySettings struct {
+type ExecuteProcessVsockStdioRelaySettings struct {
 	StdIn  uint32 `json:",omitempty"`
 	StdOut uint32 `json:",omitempty"`
 	StdErr uint32 `json:",omitempty"`
 }
 
-type containerResizeConsole struct {
-	requestBase
+type ContainerResizeConsole struct {
+	RequestBase
 	ProcessID uint32 `json:"ProcessId"`
 	Height    uint16
 	Width     uint16
 }
 
+<<<<<<<< HEAD:internal/gcs-sidecar/protocol.go
 type containerModifySettings struct {
 	requestBase
 	Request interface{}
@@ -291,12 +374,108 @@ type containerModifySettings struct {
 
 type containerWaitForProcess struct {
 	requestBase
+========
+type ContainerWaitForProcess struct {
+	RequestBase
+>>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse):internal/gcs/prot/protocol.go
 	ProcessID   uint32 `json:"ProcessId"`
 	TimeoutInMs uint32
 }
 
-type containerSignalProcess struct {
-	requestBase
+type ContainerSignalProcess struct {
+	RequestBase
 	ProcessID uint32      `json:"ProcessId"`
 	Options   interface{} `json:",omitempty"`
 }
+<<<<<<<< HEAD:internal/gcs-sidecar/protocol.go
+========
+
+type ContainerPropertiesQuery schema1.PropertyQuery
+
+func (q *ContainerPropertiesQuery) MarshalText() ([]byte, error) {
+	return json.Marshal((*schema1.PropertyQuery)(q))
+}
+
+func (q *ContainerPropertiesQuery) UnmarshalText(b []byte) error {
+	return json.Unmarshal(b, (*schema1.PropertyQuery)(q))
+}
+
+type ContainerPropertiesQueryV2 hcsschema.PropertyQuery
+
+func (q *ContainerPropertiesQueryV2) MarshalText() ([]byte, error) {
+	return json.Marshal((*hcsschema.PropertyQuery)(q))
+}
+
+func (q *ContainerPropertiesQueryV2) UnmarshalText(b []byte) error {
+	return json.Unmarshal(b, (*hcsschema.PropertyQuery)(q))
+}
+
+type ContainerGetProperties struct {
+	RequestBase
+	Query ContainerPropertiesQuery
+}
+
+type ContainerGetPropertiesV2 struct {
+	RequestBase
+	Query ContainerPropertiesQueryV2
+}
+
+type ContainerModifySettings struct {
+	RequestBase
+	Request interface{}
+}
+
+type GcsCapabilities struct {
+	SendHostCreateMessage      bool
+	SendHostStartMessage       bool
+	HvSocketConfigOnStartup    bool
+	SendLifecycleNotifications bool
+	SupportedSchemaVersions    []hcsschema.Version
+	RuntimeOsType              string
+	GuestDefinedCapabilities   json.RawMessage
+}
+
+type ContainerCreateResponse struct {
+	ResponseBase
+}
+
+type ContainerExecuteProcessResponse struct {
+	ResponseBase
+	ProcessID uint32 `json:"ProcessId"`
+}
+
+type ContainerWaitForProcessResponse struct {
+	ResponseBase
+	ExitCode uint32
+}
+
+type ContainerProperties schema1.ContainerProperties
+
+func (p *ContainerProperties) MarshalText() ([]byte, error) {
+	return json.Marshal((*schema1.ContainerProperties)(p))
+}
+
+func (p *ContainerProperties) UnmarshalText(b []byte) error {
+	return json.Unmarshal(b, (*schema1.ContainerProperties)(p))
+}
+
+type ContainerPropertiesV2 hcsschema.Properties
+
+func (p *ContainerPropertiesV2) MarshalText() ([]byte, error) {
+	return json.Marshal((*hcsschema.Properties)(p))
+}
+
+func (p *ContainerPropertiesV2) UnmarshalText(b []byte) error {
+	return json.Unmarshal(b, (*hcsschema.Properties)(p))
+}
+
+type ContainerGetPropertiesResponse struct {
+	ResponseBase
+	Properties ContainerProperties
+}
+
+type ContainerGetPropertiesResponseV2 struct {
+	ResponseBase
+	Properties ContainerPropertiesV2
+}
+>>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse):internal/gcs/prot/protocol.go

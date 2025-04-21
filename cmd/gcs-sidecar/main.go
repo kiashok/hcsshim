@@ -10,7 +10,6 @@ import (
 	"os"
 
 	"github.com/Microsoft/go-winio"
-	"github.com/Microsoft/hcsshim/internal/gcs"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
 	"github.com/sirupsen/logrus"
@@ -169,8 +168,8 @@ func main() {
 
 	// 1. Start external server to connect with inbox GCS
 	listener, err := winio.ListenHvsock(&winio.HvsockAddr{
-		VMID:      gcs.HV_GUID_LOOPBACK,
-		ServiceID: gcs.WindowsGcsHvsockServiceID,
+		VMID:      prot.HV_GUID_LOOPBACK,
+		ServiceID: prot.WindowsGcsHvsockServiceID,
 	})
 	if err != nil {
 		logrus.WithError(err).Errorf("error starting listener for sidecar <-> inbox gcs communication")
@@ -187,8 +186,8 @@ func main() {
 
 	// 2. Setup connection with external gcs connection started from hcsshim
 	hvsockAddr := &winio.HvsockAddr{
-		VMID:      gcs.HV_GUID_PARENT,
-		ServiceID: gcs.WindowsSidecarGcsHvsockServiceID,
+		VMID:      prot.HV_GUID_PARENT,
+		ServiceID: prot.WindowsSidecarGcsHvsockServiceID,
 	}
 
 	logrus.WithFields(logrus.Fields{

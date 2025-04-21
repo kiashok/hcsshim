@@ -21,7 +21,8 @@ import (
 	"go.opencensus.io/trace"
 	"go.opencensus.io/trace/tracestate"
 
-	"github.com/Microsoft/hcsshim/internal/guest/gcserr"
+	"github.com/Microsoft/hcsshim/internal/bridgeutils/commonutils"
+	"github.com/Microsoft/hcsshim/internal/bridgeutils/gcserr"
 	"github.com/Microsoft/hcsshim/internal/guest/prot"
 	"github.com/Microsoft/hcsshim/internal/guest/runtime/hcsv2"
 	"github.com/Microsoft/hcsshim/internal/log"
@@ -358,7 +359,11 @@ func (b *Bridge) ListenAndServe(bridgeIn io.ReadCloser, bridgeOut io.WriteCloser
 					if span != nil {
 						oc.SetSpanStatus(span, err)
 					}
+<<<<<<< HEAD
 					prot.SetErrorForResponseBase(resp.Base(), err, "gcs" /* moduleName */)
+=======
+					setErrorForResponseBase(resp.Base(), err, "gcs" /* moduleName */)
+>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse)
 				}
 				br.response = resp
 				b.responseChan <- br
@@ -441,3 +446,15 @@ func (b *Bridge) PublishNotification(n *prot.ContainerNotification) {
 	}
 	b.responseChan <- resp
 }
+<<<<<<< HEAD
+=======
+
+// setErrorForResponseBase modifies the passed-in MessageResponseBase to
+// contain information pertaining to the given error.
+func setErrorForResponseBase(response *prot.MessageResponseBase, errForResponse error, moduleName string) {
+	hresult, errorMessage, newRecord := commonutils.SetErrorForResponseBaseUtil(errForResponse, moduleName)
+	response.Result = int32(hresult)
+	response.ErrorMessage = errorMessage
+	response.ErrorRecords = append(response.ErrorRecords, newRecord)
+}
+>>>>>>> 92b788140 (Refactor common bridge protocol code for reuse)
