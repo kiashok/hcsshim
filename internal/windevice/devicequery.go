@@ -29,6 +29,10 @@ const (
 	_DEVPROP_TYPE_STRING_LIST uint32 = (_DEVPROP_TYPE_STRING | _DEVPROP_TYPEMOD_LIST)
 
 	_DEVPKEY_LOCATIONPATHS_GUID = "a45c254e-df1c-4efd-8020-67d146a850e0"
+
+	_IOCTL_SCSI_GET_ADDRESS = 0x41018
+
+	_IOCTL_STORAGE_GET_DEVICE_NUMBER = 0x2d1080
 )
 
 var (
@@ -171,6 +175,21 @@ func convertFirstNullTerminatedValueToString(buf []uint16) (string, error) {
 	return converted[:zerosIndex], nil
 }
 
+func convertNullSeparatedUint16BufToStringSlice(buf []uint16) []string {
+	result := []string{}
+	r := utf16.Decode(buf)
+	converted := string(r)
+	for {
+		i := strings.IndexRune(converted, '\u0000')
+		if i <= 0 {
+			break
+		}
+		result = append(result, string(converted[:i]))
+		converted = converted[i+1:]
+	}
+	return result
+}
+
 func GetChildrenFromInstanceIDs(parentIDs []string) ([]string, error) {
 	var result []string
 	for _, id := range parentIDs {
@@ -245,10 +264,10 @@ func getDeviceInterfaceInstancesByClass(ctx context.Context, interfaceClassGUID 
 // `controller` and `LUN` and returns a physical device number of that device. This device
 // number can then be used to make a path of that device and open handles to that device,
 // mount that disk etc.
-func GetDevicePathAndNumberFromControllerLUN(ctx context.Context, controller, LUN uint8) (string, uint32, error) {
+func GetDevicePathAndNumberFromControllerLUN(ctx context.Context, controller, LUN uint8) (uint32, error) {
 	interfacePaths, err := getDeviceInterfaceInstancesByClass(ctx, &devClassDiskGUID, false)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to get device interface instances: %w", err)
+		return 0, fmt.Errorf("failed to get device interface instances: %w", err)
 	}
 
 	log.G(ctx).Debugf("disk device interface list: %+v", interfacePaths)
@@ -257,20 +276,20 @@ func GetDevicePathAndNumberFromControllerLUN(ctx context.Context, controller, LU
 	for _, iPath := range interfacePaths {
 		utf16Path, err := windows.UTF16PtrFromString(iPath)
 		if err != nil {
-			return "", 0, fmt.Errorf("failed to convert interface path [%s] to utf16: %w", iPath, err)
+			return 0, fmt.Errorf("failed to convert interface path [%s] to utf16: %w", iPath, err)
 		}
 
 		handle, err := windows.CreateFile(utf16Path, windows.GENERIC_READ|windows.GENERIC_WRITE,
 			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 			nil, windows.OPEN_EXISTING, 0, 0)
 		if err != nil {
-			return "", 0, fmt.Errorf("failed to get handle to interface path [%s]: %w", iPath, err)
+			return 0, fmt.Errorf("failed to get handle to interface path [%s]: %w", iPath, err)
 		}
 		defer windows.Close(handle)
 
 		scsiAddr, err := getScsiAddress(ctx, handle)
 		if err != nil {
-			return "", 0, fmt.Errorf("failed to get SCSI address for interface path [%s]: %w", iPath, err)
+			return 0, fmt.Errorf("failed to get SCSI address for interface path [%s]: %w", iPath, err)
 		}
 		log.G(ctx).WithFields(logrus.Fields{
 			"device interface path": iPath,
@@ -281,10 +300,10 @@ func GetDevicePathAndNumberFromControllerLUN(ctx context.Context, controller, LU
 		if scsiAddr.Lun == LUN && scsiAddr.PortNumber == controller {
 			deviceNumber, err := getStorageDeviceNumber(ctx, handle)
 			if err != nil {
-				return "", 0, fmt.Errorf("failed to get physical device number: %w", err)
+				return 0, fmt.Errorf("failed to get physical device number: %w", err)
 			}
-			return iPath, deviceNumber.DeviceNumber, nil
+			return deviceNumber.DeviceNumber, nil
 		}
 	}
-	return "", 0, fmt.Errorf("no device found with controller: %d & LUN:%d", controller, LUN)
+	return 0, fmt.Errorf("no device found with controller: %d & LUN:%d", controller, LUN)
 }
