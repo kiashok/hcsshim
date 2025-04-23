@@ -15,7 +15,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/pkg/annotations"
 	task "github.com/containerd/containerd/api/runtime/task/v2"
-	"github.com/containerd/containerd/runtime/v2/shim"
+	"github.com/containerd/containerd/v2/pkg/shim"
 	"github.com/containerd/ttrpc"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

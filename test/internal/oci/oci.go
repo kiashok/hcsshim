@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/containerd/containerd/containers"
-	"github.com/containerd/containerd/namespaces"
-	ctrdoci "github.com/containerd/containerd/oci"
-	criconstants "github.com/containerd/containerd/pkg/cri/constants"
 	criopts "github.com/containerd/containerd/pkg/cri/opts"
+	"github.com/containerd/containerd/v2/core/containers"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
+	criconstants "github.com/containerd/containerd/v2/internal/cri/constants"
+	ctrdoci "github.com/containerd/containerd/v2/pkg/oci"
 	"github.com/opencontainers/runtime-spec/specs-go"
 
 	"github.com/Microsoft/hcsshim/pkg/annotations"

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
-	"github.com/containerd/containerd/protobuf"
+	"github.com/containerd/containerd/v2/pkg/protobuf"
 	"github.com/containerd/ttrpc"
 	typeurl "github.com/containerd/typeurl/v2"
 	"github.com/pkg/errors"
@@ -152,7 +152,7 @@ func (s *grpcService) AddNIC(ctx context.Context, req *ncproxygrpc.AddNICRequest
 	caReq := &computeagent.AddNICInternalRequest{
 		ContainerID: req.ContainerID,
 		NicID:       req.NicID,
-		Endpoint:    protobuf.FromAny(anyEndpoint),
+		Endpoint:    anyEndpoint,
 	}
 	if _, err := agent.AddNIC(ctx, caReq); err != nil {
 		return nil, err
