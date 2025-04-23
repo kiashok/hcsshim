@@ -1,14 +1,24 @@
+//go:build windows
+// +build windows
+
 package fsformatter
 
 import (
+	"context"
 	"encoding/binary"
-	"log"
 	"unicode/utf16"
 	"unsafe"
+
+	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/pkg/errors"
+	"golang.org/x/sys/windows"
 )
 
+// This file contains all the supporting structures needed to make
+// an ioctl call to RefsFormatter.
 const (
-	// This is used to construct the disk path that fsFormatter
+	_IOCTL_KERNEL_FORMAT_VOLUME_FORMAT = 0x40001000
+	// This is used to construct the disk path that refsFormatter
 	// understands. `harddisk%d` here refers to the disk number
 	// associated with the corresponding lun of the attached
 	// scsi device.
@@ -118,7 +128,7 @@ type KernelFormarVolumeFormatOutputBuffer struct {
 	// in bytes
 	VolumePathLength uint16
 	// VolumePathBuffer holds the mounted volume path
-	// as returned from fsFormatter. It represents
+	// as returned from refsFormatter. It represents
 	// a variable size WCHAR character array
 	VolumePathBuffer []uint16
 }
@@ -137,7 +147,7 @@ func GetVolumePathBufferOffset() uint32 {
 func getInputBufferSize(wcharDiskPathLength uint16) uint32 {
 	bufferSize := uint32(unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.Size)+
 		unsafe.Offsetof(KernelFormatVolumeFormatFsParameters{}.RefsFormatterParams)+
-		/* this is specifically for the union inKernelFormatVolumeFormatFsParameters */
+		/* This is specifically for the union inKernelFormatVolumeFormatFsParameters */
 		MAX_SIZE_OF_KERNEL_FORMAT_VOLUME_FORMAT_REFS_PARAMETERS+
 		unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.Flags)+
 		unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.Reserved)+
@@ -170,7 +180,7 @@ func KmFmtCreateFormatOutputBuffer() *KernelFormarVolumeFormatOutputBuffer {
 }
 
 // KmFmtCreateFormatInputBuffer formats an input buffer as expected
-// by the fsFormatter driver.
+// by the refsFormatter driver.
 // diskPath represents disk path in VirtualDevObjectPathFormat.
 func KmFmtCreateFormatInputBuffer(diskPath string) *KernelFormatVolumeFormatInputBuffer {
 	refsParametersBuf := make([]byte, unsafe.Sizeof(KernelFormatVolumeFormatRefsParameters{}))
@@ -186,16 +196,14 @@ func KmFmtCreateFormatInputBuffer(diskPath string) *KernelFormatVolumeFormatInpu
 	refsParameters.MinorVersion = uint16(14)
 
 	bufferSize := getInputBufferSize(wcharDiskPathLength)
-	log.Printf("\n Input buffer size: %v bytes", bufferSize)
-	buf := make([]byte, bufferSize) // bufferSize)
+	buf := make([]byte, bufferSize)
 	inputBuffer := (*KernelFormatVolumeFormatInputBuffer)(unsafe.Pointer(&buf[0]))
 
 	inputBuffer.Size = uint64(bufferSize)
 	inputBuffer.Flags = KERNEL_FORMAT_VOLUME_FORMAT_INPUT_BUFFER_FLAG_NONE
 
 	inputBuffer.FsParameters.FileSystemType = KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPE_REFS
-	// Not setting inputBuffer.FsParameters.VolumeLabel to leave it empty
-	inputBuffer.FsParameters.VolumeLabelLength = 0 // Scratch disk need not be partitioned. Therefore pass wchar empty string.
+	inputBuffer.FsParameters.VolumeLabelLength = 0
 	inputBuffer.FsParameters.VolumeLabel = [33]uint16{}
 
 	// Write KERNEL_FORMAT_VOLUME_FORMAT_REFS_PARAMETERS
@@ -214,11 +222,6 @@ func KmFmtCreateFormatInputBuffer(diskPath string) *KernelFormatVolumeFormatInpu
 	// Write the MinorVersion (2 bytes)
 	binary.LittleEndian.PutUint16(inputBuffer.FsParameters.RefsFormatterParams[10:], refsParameters.MinorVersion)
 
-	// TODO(kiashok): This can be cleaned up
-	for i := 12; i < 128; i++ {
-		inputBuffer.FsParameters.RefsFormatterParams[i] = 0 // Padding with 0s
-	}
-
 	// Finally write the diskPathLength and diskPathBuffer with the input disk path
 	inputBuffer.DiskPathLength = wcharDiskPathLength
 	// DiskBuffer writing
@@ -231,4 +234,56 @@ func KmFmtCreateFormatInputBuffer(diskPath string) *KernelFormatVolumeFormatInpu
 	}
 
 	return inputBuffer
+}
+
+// InvokeFsFormatter makes an ioctl call to the fsFormatter driver and returns
+// a path to the mountedVolume
+func InvokeFsFormatter(ctx context.Context, diskPath string) (string, error) {
+	// Prepare input and output buffers as expected by refsFormatter
+	inputBuffer := KmFmtCreateFormatInputBuffer(diskPath)
+	outputBuffer := KmFmtCreateFormatOutputBuffer()
+
+	utf16DriverPath, _ := windows.UTF16PtrFromString(KERNEL_FORMAT_VOLUME_WIN32_DRIVER_PATH)
+	deviceHandle, err := windows.CreateFile(utf16DriverPath,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
+		0,
+		nil,
+		windows.OPEN_EXISTING,
+		0,
+		0)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get handle to refsFormatter driver")
+	}
+	defer windows.Close(deviceHandle)
+
+	// Ioctl to fsFormatter driver
+	var bytesReturned uint32
+	if err := windows.DeviceIoControl(
+		deviceHandle,
+		_IOCTL_KERNEL_FORMAT_VOLUME_FORMAT,
+		(*byte)(unsafe.Pointer(inputBuffer)),
+		uint32(inputBuffer.Size),
+		(*byte)(unsafe.Pointer(outputBuffer)),
+		outputBuffer.Size,
+		&bytesReturned,
+		nil,
+	); err != nil {
+		return "", errors.Wrap(err, "ioctl to refsFormatter driver failed")
+	}
+
+	// Read the returned volume path from the corresponding offset in outputBuffer
+	ptr := unsafe.Pointer(uintptr(unsafe.Pointer(outputBuffer)) + uintptr(GetVolumePathBufferOffset()))
+	var mountedVolBytes []byte
+	/*
+		for i := 0; i < int(outputBuffer.VolumePathLength); i++ {
+			byteVal := *((*byte)(unsafe.Pointer(uintptr(ptr) + uintptr(i))))
+			result = append(result, byteVal)
+		}
+	*/
+	// Create a byte slice pointing directly to the memory region
+	mountedVolBytes = unsafe.Slice((*byte)(ptr), outputBuffer.VolumePathLength)
+	mountedVolumePath := string(mountedVolBytes)
+	log.G(ctx).Debugf("MountedVolumePath returned: %v", mountedVolumePath)
+
+	return mountedVolumePath, err
 }

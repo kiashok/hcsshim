@@ -449,7 +449,7 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 			}
 			diskPath := fmt.Sprintf(fsformatter.VirtualDevObjectPathFormat, diskNumber)
 			log.G(ctx).Tracef("diskPath: %v, diskNumber: %v ", diskPath, diskNumber)
-			mountedVolumePath, err := windevice.InvokeFsFormatter(req.ctx, diskPath)
+			mountedVolumePath, err := fsformatter.InvokeFsFormatter(req.ctx, diskPath)
 			if err != nil {
 				return errors.Wrap(err, "failed to invoke refsFormatter")
 			}

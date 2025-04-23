@@ -10,7 +10,6 @@ import (
 	"unsafe"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim/internal/fsformatter"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/pkg/errors"
@@ -31,8 +30,6 @@ const (
 	_IOCTL_SCSI_GET_ADDRESS = 0x41018
 
 	_IOCTL_STORAGE_GET_DEVICE_NUMBER = 0x2d1080
-
-	_IOCTL_KERNEL_FORMAT_VOLUME_FORMAT = 0x40001000
 )
 
 var (
@@ -275,54 +272,4 @@ func GetScsiDevicePathAndDiskNumberFromControllerLUN(ctx context.Context, contro
 		}
 	}
 	return "", 0, fmt.Errorf("no device found with controller: %d & LUN:%d", controller, LUN)
-}
-
-// InvokeFsFormatter makes an ioctl call to the fsFormatter driver and returns
-// a path to the mountedVolume
-func InvokeFsFormatter(ctx context.Context, diskPath string) (string, error) {
-	// Prepare input and output buffers as expected by fsFormatter
-	inputBuffer := fsformatter.KmFmtCreateFormatInputBuffer(diskPath)
-	outputBuffer := fsformatter.KmFmtCreateFormatOutputBuffer()
-
-	utf16DriverPath, _ := windows.UTF16PtrFromString(fsformatter.KERNEL_FORMAT_VOLUME_WIN32_DRIVER_PATH)
-	deviceHandle, err := windows.CreateFile(utf16DriverPath,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
-		0,
-		nil,
-		windows.OPEN_EXISTING,
-		0,
-		0)
-	if err != nil {
-		return "", fmt.Errorf("error getting handle to fsFormatter driver: %v", err)
-	}
-	defer windows.Close(deviceHandle)
-
-	// Ioctl to fsFormatter driver
-	var bytesReturned uint32
-	if err := windows.DeviceIoControl(
-		deviceHandle,
-		_IOCTL_KERNEL_FORMAT_VOLUME_FORMAT,
-		(*byte)(unsafe.Pointer(inputBuffer)),
-		uint32(inputBuffer.Size),
-		(*byte)(unsafe.Pointer(outputBuffer)),
-		outputBuffer.Size,
-		&bytesReturned,
-		nil,
-	); err != nil {
-		return "", err
-	}
-
-	// Read the returned volume path from the corresponding offset in outputBuffer
-	ptr := unsafe.Pointer(uintptr(unsafe.Pointer(outputBuffer)) + uintptr(fsformatter.GetVolumePathBufferOffset()))
-	var result []byte
-	for i := 0; i < int(outputBuffer.VolumePathLength); i++ {
-		// Read each byte (this is unsafe, but for illustrative purposes)
-		byteVal := *((*byte)(unsafe.Pointer(uintptr(ptr) + uintptr(i))))
-		result = append(result, byteVal)
-	}
-
-	mountedVolumePath := string(result)
-	log.G(ctx).Debugf("MountedVolumePath returned: %v", mountedVolumePath)
-
-	return mountedVolumePath, err
 }
