@@ -17,7 +17,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 
-	gcsBridge "github.com/Microsoft/hcsshim/cmd/gcs-sidecar/internal/bridge"
+	gcsBridge "github.com/Microsoft/hcsshim/internal/gcs-sidecar"
 	windowssecuritypolicy "github.com/Microsoft/hcsshim/pkg/securitypolicy"
 )
 
