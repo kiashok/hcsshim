@@ -327,7 +327,7 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 		for req := range shimRequestChan {
 			go func(req request) {
 				if err := b.ServeMsg(&req); err != nil {
-					log.G(req.ctx).WithError(err).Errorf("failed to serve request")
+					log.G(req.ctx).WithError(err).Errorf("failed to serve request: %v", req.header.Type.String())
 					// In case of error, create appropriate response message to
 					// be sent to hcsshim.
 					resp := &prot.ResponseBase{
@@ -337,7 +337,6 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 					}
 					setErrorForResponseBase(resp, err, "gcs-sidecar" /* moduleName */)
 					b.sendResponseToShim(req.ctx, prot.RpcProc(prot.MsgTypeResponse), req.header.ID, resp)
-					return
 				}
 			}(req)
 		}

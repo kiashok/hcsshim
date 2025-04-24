@@ -11,14 +11,7 @@ import (
 	"syscall"
 
 	oci "github.com/opencontainers/runtime-spec/specs-go"
-<<<<<<< HEAD
-=======
-
->>>>>>> 919ab27e0 (gcs-sidecar framework)
 	"github.com/pkg/errors"
-
-	specGuest "github.com/Microsoft/hcsshim/internal/guest/spec"
-	"github.com/Microsoft/hcsshim/internal/guestpath"
 )
 
 type createEnforcerFunc func(base64EncodedPolicy string, criMounts, criPrivilegedMounts []oci.Mount, maxErrorMessageLength int) (SecurityPolicyEnforcer, error)
