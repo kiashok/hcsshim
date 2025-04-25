@@ -22,17 +22,7 @@ import (
 
 	"github.com/Microsoft/cosesign1go/pkg/cosesign1"
 	didx509resolver "github.com/Microsoft/didx509go/pkg/did-x509-resolver"
-<<<<<<< HEAD
-=======
-	"github.com/Microsoft/hcsshim/pkg/annotations"
-	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
-	"github.com/mattn/go-shellwords"
-	"github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
 	"github.com/Microsoft/hcsshim/internal/bridgeutils/gcserr"
->>>>>>> 92b788140 (Refactor common bridge protocol code for reuse)
 	"github.com/Microsoft/hcsshim/internal/debug"
 	"github.com/Microsoft/hcsshim/internal/guest/policy"
 	"github.com/Microsoft/hcsshim/internal/guest/prot"

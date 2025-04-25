@@ -14,12 +14,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-<<<<<<< HEAD
-	"github.com/Microsoft/hcsshim/internal/guest/commonutils"
-	"github.com/Microsoft/hcsshim/internal/guest/gcserr"
-=======
 	"github.com/Microsoft/hcsshim/internal/bridgeutils/commonutils"
->>>>>>> 92b788140 (Refactor common bridge protocol code for reuse)
+	"github.com/Microsoft/hcsshim/internal/bridgeutils/gcserr"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestrequest"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
@@ -857,7 +853,7 @@ func SetErrorForResponseBase(response *MessageResponseBase, errForResponse error
 	}
 	response.Result = int32(hresult)
 	response.ErrorMessage = errorMessage
-	newRecord := ErrorRecord{
+	newRecord := commonutils.ErrorRecord{
 		Result:       int32(hresult),
 		Message:      errorMessage,
 		StackTrace:   stackString,

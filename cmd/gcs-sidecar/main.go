@@ -19,6 +19,7 @@ import (
 	"golang.org/x/sys/windows/svc/debug"
 
 	gcsBridge "github.com/Microsoft/hcsshim/internal/gcs-sidecar"
+	"github.com/Microsoft/hcsshim/internal/gcs/prot"
 	shimlog "github.com/Microsoft/hcsshim/internal/log"
 )
 
@@ -114,7 +115,7 @@ func runService(name string, isDebug bool) error {
 	}()
 
 	// Wait for the first signal from the service handler.
-	logrus.Tracef("waiting for first signal from service handler\n")
+	logrus.Tracef("waiting for first signal from service handler")
 	err = <-h.fromsvc
 	if err != nil {
 		return err
@@ -192,7 +193,7 @@ func main() {
 
 	logrus.WithFields(logrus.Fields{
 		"hvsockAddr": hvsockAddr,
-	}).Tracef("Dialing to hcsshim external bridge at address %v", hvsockAddr)
+	}).Tracef("Dialingggggggg to hcsshim external bridge at address %v", hvsockAddr)
 	shimCon, err := winio.Dial(ctx, hvsockAddr)
 	if err != nil {
 		logrus.WithError(err).Errorf("error dialing hcsshim external bridge")

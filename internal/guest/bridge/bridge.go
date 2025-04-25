@@ -359,11 +359,7 @@ func (b *Bridge) ListenAndServe(bridgeIn io.ReadCloser, bridgeOut io.WriteCloser
 					if span != nil {
 						oc.SetSpanStatus(span, err)
 					}
-<<<<<<< HEAD
-					prot.SetErrorForResponseBase(resp.Base(), err, "gcs" /* moduleName */)
-=======
 					setErrorForResponseBase(resp.Base(), err, "gcs" /* moduleName */)
->>>>>>> 92b788140 (Refactor common bridge protocol code for reuse)
 				}
 				br.response = resp
 				b.responseChan <- br
@@ -446,8 +442,6 @@ func (b *Bridge) PublishNotification(n *prot.ContainerNotification) {
 	}
 	b.responseChan <- resp
 }
-<<<<<<< HEAD
-=======
 
 // setErrorForResponseBase modifies the passed-in MessageResponseBase to
 // contain information pertaining to the given error.
@@ -457,4 +451,3 @@ func setErrorForResponseBase(response *prot.MessageResponseBase, errForResponse 
 	response.ErrorMessage = errorMessage
 	response.ErrorRecords = append(response.ErrorRecords, newRecord)
 }
->>>>>>> 92b788140 (Refactor common bridge protocol code for reuse)
