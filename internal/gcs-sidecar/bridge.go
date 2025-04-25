@@ -7,32 +7,34 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
+	"go.opencensus.io/trace/tracestate"
 	"golang.org/x/sys/windows"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim/internal/guest/gcserr"
-	"github.com/Microsoft/hcsshim/internal/guest/prot"
+	"github.com/Microsoft/hcsshim/internal/bridgeutils/commonutils"
+	"github.com/Microsoft/hcsshim/internal/bridgeutils/gcserr"
+	prot "github.com/Microsoft/hcsshim/internal/gcs"
+	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
-	windowssecuritypolicy "github.com/Microsoft/hcsshim/pkg/securitypolicy"
 )
-
-// TODO:
-// - Test different error cases
-// - Add spans, bridge.Log()
 
 type Bridge struct {
 	mu        sync.Mutex
 	hostState *Host
 	// List of handlers for handling different rpc message requests.
-	rpcHandlerList map[rpcProc]HandlerFunc
+	rpcHandlerList map[prot.RpcProc]HandlerFunc
 
 	// hcsshim and inbox GCS connections respectively.
 	shimConn     io.ReadWriteCloser
@@ -44,9 +46,19 @@ type Bridge struct {
 	sendToShimCh chan bridgeResponse
 }
 
+// SequenceID is used to correlate requests and responses.
+type sequenceID uint64
+
+// messageHeader is the common header present in all communications messages.
+type messageHeader struct {
+	Type prot.MsgType
+	Size uint32
+	ID   sequenceID
+}
+
 type bridgeResponse struct {
 	ctx      context.Context
-	header   MessageHeader
+	header   messageHeader
 	response []byte
 }
 
@@ -55,7 +67,7 @@ type request struct {
 	ctx context.Context
 	// header is the wire format message header that preceded the message for
 	// this request.
-	header MessageHeader
+	header messageHeader
 	// activityID is the id of the specific activity for this request.
 	activityID guid.GUID
 	// message is the portion of the request that follows the `Header`.
@@ -65,7 +77,7 @@ type request struct {
 func NewBridge(shimConn io.ReadWriteCloser, inboxGCSConn io.ReadWriteCloser, initialEnforcer securitypolicy.SecurityPolicyEnforcer) *Bridge {
 	hostState := NewHost(initialEnforcer)
 	return &Bridge{
-		rpcHandlerList: make(map[rpcProc]HandlerFunc),
+		rpcHandlerList: make(map[prot.RpcProc]HandlerFunc),
 		hostState:      hostState,
 		shimConn:       shimConn,
 		inboxGCSConn:   inboxGCSConn,
@@ -74,7 +86,7 @@ func NewBridge(shimConn io.ReadWriteCloser, inboxGCSConn io.ReadWriteCloser, ini
 	}
 }
 
-func NewPolicyEnforcer(initialEnforcer windowssecuritypolicy.SecurityPolicyEnforcer) *SecurityPoliyEnforcer {
+func NewPolicyEnforcer(initialEnforcer securitypolicy.SecurityPolicyEnforcer) *SecurityPoliyEnforcer {
 	return &SecurityPoliyEnforcer{
 		securityPolicyEnforcerSet: false,
 		securityPolicyEnforcer:    initialEnforcer,
@@ -84,7 +96,7 @@ func NewPolicyEnforcer(initialEnforcer windowssecuritypolicy.SecurityPolicyEnfor
 // UnknownMessage represents the default handler logic for an unmatched request
 // type sent from the bridge.
 func UnknownMessage(r *request) error {
-	log.Printf("unknown handler with rpcMessage type %v", msgType(r.header.Type).String())
+	log.G(r.ctx).Debugf("bridge: function not supported, header type %v", prot.MsgType(r.header.Type).String())
 	return gcserr.WrapHresult(errors.Errorf("bridge: function not supported, header type: %v", r.header.Type), gcserr.HrNotImpl)
 }
 
@@ -103,7 +115,7 @@ func (b *Bridge) ServeMsg(r *request) error {
 	var handler HandlerFunc
 	var ok bool
 	messageType := r.header.Type
-	rpcProcID := rpcProc(msgType(messageType) &^ msgTypeMask)
+	rpcProcID := prot.RpcProc(prot.MsgType(messageType) &^ prot.MsgTypeMask)
 	if handler, ok = b.rpcHandlerList[rpcProcID]; !ok {
 		return UnknownMessage(r)
 	}
@@ -112,7 +124,7 @@ func (b *Bridge) ServeMsg(r *request) error {
 }
 
 // Handle registers the handler for the given message id and protocol version.
-func (b *Bridge) Handle(rpcProcID rpcProc, handlerFunc HandlerFunc) {
+func (b *Bridge) Handle(rpcProcID prot.RpcProc, handlerFunc HandlerFunc) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -121,13 +133,15 @@ func (b *Bridge) Handle(rpcProcID rpcProc, handlerFunc HandlerFunc) {
 	}
 
 	if _, ok := b.rpcHandlerList[rpcProcID]; ok {
-		log.Printf("gcs-sidecar::bridge - overwriting bridge handler. message-type: %v", rpcProcID.String())
+		logrus.WithFields(logrus.Fields{
+			"message-type": rpcProcID.String(),
+		}).Warn("overwriting bridge handler")
 	}
 
 	b.rpcHandlerList[rpcProcID] = handlerFunc
 }
 
-func (b *Bridge) HandleFunc(rpcProcID rpcProc, handler func(*request) error) {
+func (b *Bridge) HandleFunc(rpcProcID prot.RpcProc, handler func(*request) error) {
 	if handler == nil {
 		panic("bridge: nil handler func")
 	}
@@ -138,52 +152,52 @@ func (b *Bridge) HandleFunc(rpcProcID rpcProc, handler func(*request) error) {
 // AssignHandlers creates and assigns appropriate event handlers
 // for the different bridge message types.
 func (b *Bridge) AssignHandlers() {
-	b.HandleFunc(rpcCreate, b.createContainer)
-	b.HandleFunc(rpcStart, b.startContainer)
-	b.HandleFunc(rpcShutdownGraceful, b.shutdownGraceful)
-	b.HandleFunc(rpcShutdownForced, b.shutdownForced)
-	b.HandleFunc(rpcExecuteProcess, b.executeProcess)
-	b.HandleFunc(rpcWaitForProcess, b.waitForProcess)
-	b.HandleFunc(rpcSignalProcess, b.signalProcess)
-	b.HandleFunc(rpcResizeConsole, b.resizeConsole)
-	b.HandleFunc(rpcGetProperties, b.getProperties)
-	b.HandleFunc(rpcModifySettings, b.modifySettings)
-	b.HandleFunc(rpcNegotiateProtocol, b.negotiateProtocol)
-	b.HandleFunc(rpcDumpStacks, b.dumpStacks)
-	b.HandleFunc(rpcDeleteContainerState, b.deleteContainerState)
-	b.HandleFunc(rpcUpdateContainer, b.updateContainer)
-	b.HandleFunc(rpcLifecycleNotification, b.lifecycleNotification)
+	b.HandleFunc(prot.RpcCreate, b.createContainer)
+	b.HandleFunc(prot.RpcStart, b.startContainer)
+	b.HandleFunc(prot.RpcShutdownGraceful, b.shutdownGraceful)
+	b.HandleFunc(prot.RpcShutdownForced, b.shutdownForced)
+	b.HandleFunc(prot.RpcExecuteProcess, b.executeProcess)
+	b.HandleFunc(prot.RpcWaitForProcess, b.waitForProcess)
+	b.HandleFunc(prot.RpcSignalProcess, b.signalProcess)
+	b.HandleFunc(prot.RpcResizeConsole, b.resizeConsole)
+	b.HandleFunc(prot.RpcGetProperties, b.getProperties)
+	b.HandleFunc(prot.RpcModifySettings, b.modifySettings)
+	b.HandleFunc(prot.RpcNegotiateProtocol, b.negotiateProtocol)
+	b.HandleFunc(prot.RpcDumpStacks, b.dumpStacks)
+	b.HandleFunc(prot.RpcDeleteContainerState, b.deleteContainerState)
+	b.HandleFunc(prot.RpcUpdateContainer, b.updateContainer)
+	b.HandleFunc(prot.RpcLifecycleNotification, b.lifecycleNotification)
 }
 
 // readMessage reads the message from io.Reader
-func readMessage(r io.Reader) (MessageHeader, []byte, error) {
-	var h [hdrSize]byte
+func readMessage(r io.Reader) (messageHeader, []byte, error) {
+	var h [prot.HdrSize]byte
 	_, err := io.ReadFull(r, h[:])
 	if err != nil {
-		return MessageHeader{}, nil, err
+		return messageHeader{}, nil, err
 	}
-	var header MessageHeader
+	var header messageHeader
 	buf := bytes.NewReader(h[:])
 	err = binary.Read(buf, binary.LittleEndian, &header)
 	if err != nil {
-		log.Fatalf("error reading message header: %v", err)
-		return MessageHeader{}, nil, err
+		logrus.WithError(err).Errorf("error reading message header")
+		return messageHeader{}, nil, err
 	}
 
 	n := header.Size
-	if n < hdrSize || n > maxMsgSize {
-		log.Printf("invalid message size %d", n)
-		return MessageHeader{}, nil, fmt.Errorf("invalid message size %d", n)
+	if n < prot.HdrSize || n > prot.MaxMsgSize {
+		logrus.Errorf("invalid message size %d", n)
+		return messageHeader{}, nil, fmt.Errorf("invalid message size %d", n)
 	}
 
-	n -= hdrSize
+	n -= prot.HdrSize
 	msg := make([]byte, n)
 	_, err = io.ReadFull(r, msg)
 	if err != nil {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
 		}
-		return MessageHeader{}, nil, err
+		return messageHeader{}, nil, err
 	}
 
 	return header, msg, nil
@@ -199,24 +213,64 @@ func (b *Bridge) forwardRequestToGcs(req *request) {
 }
 
 // Sends response to the hcsshim channel
-func (b *Bridge) sendResponseToShim(rpcProcType rpcProc, id SequenceID, response interface{}) error {
-	respType := msgTypeResponse | msgType(rpcProcType)
+func (b *Bridge) sendResponseToShim(ctx context.Context, rpcProcType prot.RpcProc, id sequenceID, response interface{}) error {
+	// TODO (kiashok):
+	respType := prot.MsgTypeResponse | prot.MsgType(rpcProcType)
 	msgb, err := json.Marshal(response)
 	if err != nil {
 		return err
 	}
-	msgHeader := MessageHeader{
+	msgHeader := messageHeader{
 		Type: respType,
-		Size: uint32(len(msgb) + hdrSize),
+		Size: uint32(len(msgb) + prot.HdrSize),
 		ID:   id,
 	}
 
 	b.sendToShimCh <- bridgeResponse{
-		//ctx
+		ctx:      ctx,
 		header:   msgHeader,
 		response: msgb,
 	}
 	return nil
+}
+
+func getContextAndSpan(baseSpanCtx *prot.Ocspancontext) (context.Context, *trace.Span) {
+	var ctx context.Context
+	var span *trace.Span
+	if baseSpanCtx != nil {
+		sc := trace.SpanContext{}
+		if bytes, err := hex.DecodeString(baseSpanCtx.TraceID); err == nil {
+			copy(sc.TraceID[:], bytes)
+		}
+		if bytes, err := hex.DecodeString(baseSpanCtx.SpanID); err == nil {
+			copy(sc.SpanID[:], bytes)
+		}
+		sc.TraceOptions = trace.TraceOptions(baseSpanCtx.TraceOptions)
+		if baseSpanCtx.Tracestate != "" {
+			if bytes, err := base64.StdEncoding.DecodeString(baseSpanCtx.Tracestate); err == nil {
+				var entries []tracestate.Entry
+				if err := json.Unmarshal(bytes, &entries); err == nil {
+					if ts, err := tracestate.New(nil, entries...); err == nil {
+						sc.Tracestate = ts
+					}
+				}
+			}
+		}
+		ctx, span = oc.StartSpanWithRemoteParent(
+			context.Background(),
+			"sidecar::request",
+			sc,
+			oc.WithServerSpanKind,
+		)
+	} else {
+		ctx, span = oc.StartSpan(
+			context.Background(),
+			"sidecar::request",
+			oc.WithServerSpanKind,
+		)
+	}
+
+	return ctx, span
 }
 
 // ListenAndServeShimRequests listens to messages on the hcsshim
@@ -226,11 +280,11 @@ func (b *Bridge) sendResponseToShim(rpcProcType rpcProc, id SequenceID, response
 // to hcsshim via bridge connection.
 func (b *Bridge) ListenAndServeShimRequests() error {
 	shimRequestChan := make(chan request)
-	shimErrChan := make(chan error)
+	sideErrChan := make(chan error)
 
 	defer b.inboxGCSConn.Close()
 	defer close(shimRequestChan)
-	defer close(shimErrChan)
+	defer close(sideErrChan)
 	defer b.shimConn.Close()
 	defer close(b.sendToShimCh)
 	defer close(b.sendToGCSCh)
@@ -245,38 +299,44 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 				if err == io.EOF || isLocalDisconnectError(err) {
 					return
 				}
-				log.Printf("bridge read from shim connection failed: %s \n", err)
 				recverr = errors.Wrap(err, "bridge read from shim connection failed")
+				logrus.Error(recverr)
 				break
 			}
-			var msgBase requestBase
+			var msgBase prot.RequestBase
 			_ = json.Unmarshal(msg, &msgBase)
+			ctx, span := getContextAndSpan(msgBase.OpenCensusSpanContext)
+			span.AddAttributes(
+				trace.Int64Attribute("message-id", int64(header.ID)),
+				trace.StringAttribute("message-type", header.Type.String()),
+				trace.StringAttribute("activityID", msgBase.ActivityID.String()),
+				trace.StringAttribute("containerID", msgBase.ContainerID))
+
 			req := request{
-				ctx:        context.Background(),
+				ctx:        ctx,
 				activityID: msgBase.ActivityID,
 				header:     header,
 				message:    msg,
 			}
-			log.Printf("Request from shim: \n Header {Type: %v Size: %v ID: %v }\n msg: %v \n", req.header.Type, req.header.Size, req.header.ID, string(req.message))
 			shimRequestChan <- req
 		}
-		shimErrChan <- recverr
+		sideErrChan <- recverr
 	}()
 	// Process each bridge request received from shim asynchronously.
 	go func() {
 		for req := range shimRequestChan {
 			go func(req request) {
 				if err := b.ServeMsg(&req); err != nil {
+					log.G(req.ctx).WithError(err).Errorf("failed to serve request: %v", req.header.Type.String())
 					// In case of error, create appropriate response message to
 					// be sent to hcsshim.
-					resp := &prot.MessageResponseBase{
+					resp := &prot.ResponseBase{
 						Result:       int32(windows.ERROR_GEN_FAILURE),
 						ErrorMessage: err.Error(),
-						ActivityID:   req.activityID.String(),
+						ActivityID:   req.activityID,
 					}
-					prot.SetErrorForResponseBase(resp, err, "gcs-sidecar" /* moduleName */)
-					b.sendResponseToShim(rpcProc(msgTypeResponse), req.header.ID, resp)
-					return
+					setErrorForResponseBase(resp, err, "gcs-sidecar" /* moduleName */)
+					b.sendResponseToShim(req.ctx, prot.RpcProc(prot.MsgTypeResponse), req.header.ID, resp)
 				}
 			}(req)
 		}
@@ -285,16 +345,22 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 		var err error
 		for req := range b.sendToGCSCh {
 			// Forward message to gcs
-			log.Printf("bridge send to gcs, req %v", req)
-			buffer := b.prepareResponseMessage(req.header, req.message)
-			_, err := buffer.WriteTo(b.inboxGCSConn)
+			log.G(req.ctx).Tracef("bridge send to gcs, req %v", req)
+			buffer, err := b.prepareResponseMessage(req.header, req.message)
 			if err != nil {
-				log.Printf("err sending response to inbox GCS: %v", err)
-				err = fmt.Errorf("err forwarding shim req to inbox GCS: %v", err)
+				err = errors.Wrap(err, "error preparing response")
+				logrus.Error(err)
+				break
+			}
+
+			_, err = buffer.WriteTo(b.inboxGCSConn)
+			if err != nil {
+				err = errors.Wrap(err, "err forwarding shim req to inbox GCS")
+				logrus.Error(err)
 				break
 			}
 		}
-		shimErrChan <- err
+		sideErrChan <- err
 	}()
 	// Receive response from gcs and forward to hcsshim
 	go func() {
@@ -305,8 +371,8 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 				if err == io.EOF || isLocalDisconnectError(err) {
 					return
 				}
-				recverr = fmt.Errorf("bridge read from gcs failed: %s", err)
-				log.Printf("bridge read from gcs failed: %v", err)
+				recverr = errors.Wrap(err, "bridge read from gcs failed")
+				logrus.Error(recverr)
 				break
 			}
 
@@ -318,44 +384,58 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 			}
 			b.sendToShimCh <- resp
 		}
-		shimErrChan <- recverr
+		sideErrChan <- recverr
 	}()
-
+	// Send response to hcsshim
 	go func() {
 		var sendErr error
 		for resp := range b.sendToShimCh {
 			// Send response to shim
-			log.Printf("Send response to shim \n Header:{ID: %v, Type: %v, Size: %v} \n msg: %v \n", resp.header.ID,
+			logrus.Tracef("Send response to shim. Header:{ID: %v, Type: %v, Size: %v} msg: %v", resp.header.ID,
 				resp.header.Type, resp.header.Size, string(resp.response))
-			buffer := b.prepareResponseMessage(resp.header, resp.response)
+			buffer, err := b.prepareResponseMessage(resp.header, resp.response)
+			if err != nil {
+				sendErr = errors.Wrap(err, "error preparing response")
+				logrus.Error(sendErr)
+				break
+			}
 			_, sendErr = buffer.WriteTo(b.shimConn)
 			if sendErr != nil {
-				log.Printf("err sending response to shim: %v", sendErr)
-				sendErr = fmt.Errorf("err sendign response to shim: %v", sendErr)
+				sendErr = errors.Wrap(sendErr, "err sending response to shim")
+				logrus.Error(sendErr)
 				break
 			}
 		}
-		shimErrChan <- sendErr
+		sideErrChan <- sendErr
 	}()
 
 	select {
-	case err := <-shimErrChan:
+	case err := <-sideErrChan:
 		return err
 	}
 }
 
 // Prepare response message
-func (b *Bridge) prepareResponseMessage(header MessageHeader, message []byte) bytes.Buffer {
+func (b *Bridge) prepareResponseMessage(header messageHeader, message []byte) (bytes.Buffer, error) {
 	// Create a buffer to hold the serialized header data
 	var headerBuf bytes.Buffer
 	err := binary.Write(&headerBuf, binary.LittleEndian, header)
 	if err != nil {
-		log.Fatal(err)
+		return headerBuf, err
 	}
 
 	// Write message header followed by actual payload.
 	var buf bytes.Buffer
 	buf.Write(headerBuf.Bytes())
 	buf.Write(message[:])
-	return buf
+	return buf, nil
+}
+
+// setErrorForResponseBase modifies the passed-in ResponseBase to
+// contain information pertaining to the given error.
+func setErrorForResponseBase(response *prot.ResponseBase, errForResponse error, moduleName string) {
+	hresult, errorMessage, newRecord := commonutils.SetErrorForResponseBaseUtil(errForResponse, moduleName)
+	response.Result = int32(hresult)
+	response.ErrorMessage = errorMessage
+	response.ErrorRecords = append(response.ErrorRecords, newRecord)
 }

@@ -6,35 +6,34 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"os"
 
 	"github.com/Microsoft/go-winio"
-	"github.com/Microsoft/go-winio/pkg/guid"
 	"github.com/Microsoft/hcsshim/internal/gcs"
+	"github.com/Microsoft/hcsshim/internal/oc"
+	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
+	"github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 
 	gcsBridge "github.com/Microsoft/hcsshim/internal/gcs-sidecar"
-	windowssecuritypolicy "github.com/Microsoft/hcsshim/pkg/securitypolicy"
+	shimlog "github.com/Microsoft/hcsshim/internal/log"
+)
+
+var (
+	// TODO (kiashok): cleanup once logging for gcs-sidecar is finalized
+	logFile  = "C:\\gcs-sidecar.log"
+	logLevel = logrus.TraceLevel
 )
 
 type handler struct {
 	fromsvc chan error
 }
 
-// New guid for sidecar gcs service
-// ae8da506-a019-4553-a52b-902bc0fa0411
-var WindowsSidecarGcsHvsockServiceID = guid.GUID{
-	Data1: 0xae8da506,
-	Data2: 0xa019,
-	Data3: 0x4553,
-	Data4: [8]uint8{0xa5, 0x2b, 0x90, 0x2b, 0xc0, 0xfa, 0x04, 0x11},
-}
-
-// Accepts new connection closes listener
+// Accepts new connection and closes listener.
 func acceptAndClose(ctx context.Context, l net.Listener) (net.Conn, error) {
 	var conn net.Conn
 	ch := make(chan error)
@@ -49,9 +48,7 @@ func acceptAndClose(ctx context.Context, l net.Listener) (net.Conn, error) {
 		return conn, err
 	case <-ctx.Done():
 	}
-
 	l.Close()
-
 	err := <-ch
 	if err == nil {
 		return conn, err
@@ -63,12 +60,12 @@ func acceptAndClose(ctx context.Context, l net.Listener) (net.Conn, error) {
 	return nil, err
 }
 
-func (m *handler) Execute(args []string, r <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
-	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown | svc.AcceptPauseAndContinue
+func (h *handler) Execute(args []string, r <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
+	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown | svc.Accepted(windows.SERVICE_ACCEPT_PARAMCHANGE)
 
 	status <- svc.Status{State: svc.StartPending, Accepts: 0}
 	// unblock runService()
-	m.fromsvc <- nil
+	h.fromsvc <- nil
 
 	status <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 
@@ -80,15 +77,14 @@ loop:
 			case svc.Interrogate:
 				status <- c.CurrentStatus
 			case svc.Stop, svc.Shutdown:
-				log.Print("Shutting service...!")
-				// TODO: service stop?!
+				logrus.Println("Shutting service...!")
 				break loop
 			case svc.Pause:
 				status <- svc.Status{State: svc.Paused, Accepts: cmdsAccepted}
 			case svc.Continue:
 				status <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 			default:
-				log.Printf("Unexpected service control request #%d", c)
+				logrus.Printf("Unexpected service control request #%d", c)
 			}
 		}
 	}
@@ -107,19 +103,19 @@ func runService(name string, isDebug bool) error {
 		if isDebug {
 			err := debug.Run(name, h)
 			if err != nil {
-				log.Fatalf("Error running service in debug mode.Err: %v", err)
+				logrus.Fatalf("Error running service in debug mode.Err: %v", err)
 			}
 		} else {
 			err := svc.Run(name, h)
 			if err != nil {
-				log.Fatalf("Error running service in Service Control mode.Err %v", err)
+				logrus.Fatalf("Error running service in Service Control mode.Err %v", err)
 			}
 		}
 		h.fromsvc <- err
 	}()
 
 	// Wait for the first signal from the service handler.
-	log.Printf("waiting for first signal from service handler\n")
+	logrus.Tracef("waiting for first signal from service handler\n")
 	err = <-h.fromsvc
 	if err != nil {
 		return err
@@ -129,44 +125,47 @@ func runService(name string, isDebug bool) error {
 }
 
 func main() {
-	// Ignore the following log when running sidecar outside the uvm.
-	// Logs will be at C:\\gcs-sidecar-logs-redirect.log.
-	// See internal/uvm/start.go#252 for more details.
-	f, err := os.OpenFile("C:\\gcs-sidecar-logs.log", os.O_RDWR|os.O_CREATE|os.O_SYNC|os.O_TRUNC, 0666)
+	ctx := context.Background()
+
+	logFileHandle, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_SYNC|os.O_TRUNC, 0666)
 	if err != nil {
 		fmt.Printf("error opening file: %v", err)
 	}
-	defer f.Close()
+	defer logFileHandle.Close()
 
-	log.SetOutput(f)
+	logrus.AddHook(shimlog.NewHook())
+	logrus.SetLevel(logLevel)
+	logrus.SetOutput(logFileHandle)
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
+	trace.RegisterExporter(&oc.LogrusExporter{})
 
-	if err := windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(f.Fd())); err != nil {
-		log.Printf("error redirecting handle: %s", err)
+	if err := windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(logFileHandle.Fd())); err != nil {
+		logrus.WithError(err).Error("error redirecting handle")
 		return
 	}
-	os.Stderr = f
+	os.Stderr = logFileHandle
 
 	chsrv := make(chan error)
 	go func() {
 		defer close(chsrv)
 
 		if err := runService("gcs-sidecar", false); err != nil {
-			log.Fatalf("error starting gcs-sidecar service: %v", err)
+			logrus.Fatalf("error starting gcs-sidecar service: %v", err)
 		}
 
 		chsrv <- err
 	}()
 
 	select {
-	// case <-ctx.Done():
-	//	return ctx.Err()
+	case <-ctx.Done():
+		logrus.Fatalln("context deadline exceeded")
+		return
 	case r := <-chsrv:
 		if r != nil {
-			log.Fatal(r)
+			logrus.Fatal(r)
+			return
 		}
 	}
-
-	ctx := context.Background()
 
 	// 1. Start external server to connect with inbox GCS
 	listener, err := winio.ListenHvsock(&winio.HvsockAddr{
@@ -174,7 +173,7 @@ func main() {
 		ServiceID: gcs.WindowsGcsHvsockServiceID,
 	})
 	if err != nil {
-		log.Printf("Error to start server for sidecar <-> inbox gcs communication: %v", err)
+		logrus.WithError(err).Errorf("error starting listener for sidecar <-> inbox gcs communication")
 		return
 	}
 
@@ -182,43 +181,41 @@ func main() {
 	gcsListener = listener
 	gcsCon, err := acceptAndClose(ctx, gcsListener)
 	if err != nil {
-		log.Printf("Err accepting inbox GCS connection %v", err)
+		logrus.WithError(err).Errorf("error accepting inbox GCS connection")
 		return
 	}
 
-	// 2. Setup connection with hcsshim external gcs connection
-	//	var establishedShimConnection chan bool
+	// 2. Setup connection with external gcs connection started from hcsshim
 	hvsockAddr := &winio.HvsockAddr{
 		VMID:      gcs.HV_GUID_PARENT,
 		ServiceID: gcs.WindowsSidecarGcsHvsockServiceID,
 	}
 
-	log.Printf("Dialing to hcsshim external bridge at address %v", hvsockAddr)
+	logrus.WithFields(logrus.Fields{
+		"hvsockAddr": hvsockAddr,
+	}).Tracef("Dialing to hcsshim external bridge at address %v", hvsockAddr)
 	shimCon, err := winio.Dial(ctx, hvsockAddr)
 	if err != nil {
-		log.Printf("Error dialing hcsshim external bridge at address %v", hvsockAddr)
+		logrus.WithError(err).Errorf("error dialing hcsshim external bridge")
 		return
 	}
 
-	// TODO:
-	// Since gcs-sidecar can be used for all types of windows
-	// containers, it is important to check if we want to
-	// enforce policy or not. Therefore do we want to have
-	// an initialState?
-	// set up our initial stance policy enforcer
-	var initialEnforcer windowssecuritypolicy.SecurityPolicyEnforcer
+	// TODO (kiashok/Mahati):
+	// Finalize on initial policy state.
+	// Note: gcs-sidecar can be used for non-confidentail hyperv wcow
+	// as well.
+	var initialEnforcer securitypolicy.SecurityPolicyEnforcer
 	initialPolicyStance := "allow"
 	switch initialPolicyStance {
 	case "allow":
-		initialEnforcer = &windowssecuritypolicy.OpenDoorSecurityPolicyEnforcer{}
-		log.Printf("initial-policy-stance: allow")
+		initialEnforcer = &securitypolicy.OpenDoorSecurityPolicyEnforcer{}
+		logrus.Tracef("initial-policy-stance: allow")
 	case "deny":
-		initialEnforcer = &windowssecuritypolicy.ClosedDoorSecurityPolicyEnforcer{}
-		log.Printf("initial-policy-stance: deny")
+		initialEnforcer = &securitypolicy.ClosedDoorSecurityPolicyEnforcer{}
+		logrus.Tracef("initial-policy-stance: deny")
 	default:
-		log.Printf("unknown initial-policy-stance")
+		logrus.Tracef("unknown initial-policy-stance")
 	}
-
 	// 3. Create bridge and initializa
 	brdg := gcsBridge.NewBridge(shimCon, gcsCon, initialEnforcer)
 	brdg.AssignHandlers()
@@ -226,6 +223,6 @@ func main() {
 	// 3. Listen and serve for hcsshim requests.
 	err = brdg.ListenAndServeShimRequests()
 	if err != nil {
-		log.Printf("\n failed to serve request: %v", err)
+		logrus.WithError(err).Errorf("failed to serve request")
 	}
 }
