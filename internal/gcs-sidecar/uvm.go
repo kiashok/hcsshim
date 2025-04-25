@@ -4,6 +4,7 @@
 package bridge
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -15,8 +16,48 @@ import (
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestrequest"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
+	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
 	"github.com/pkg/errors"
 )
+
+func modifyMappedVirtualDisk(
+	ctx context.Context,
+	rt guestrequest.RequestType,
+	mvd *guestresource.WCOWMappedVirtualDisk,
+	securityPolicy securitypolicy.SecurityPolicyEnforcer,
+) (err error) {
+	switch rt {
+	case guestrequest.RequestTypeAdd:
+		// TODO: Modify and update this with verified Cims API
+		return securityPolicy.EnforceDeviceMountPolicy(ctx, mvd.ContainerPath, "hash")
+	case guestrequest.RequestTypeRemove:
+		// TODO: Modify and update this with verified Cims API
+		return securityPolicy.EnforceDeviceUnmountPolicy(ctx, mvd.ContainerPath)
+	default:
+		return newInvalidRequestTypeError(rt)
+	}
+}
+
+func modifyCombinedLayers(
+	ctx context.Context,
+	containerID string,
+	rt guestrequest.RequestType,
+	cl guestresource.WCOWCombinedLayers,
+	securityPolicy securitypolicy.SecurityPolicyEnforcer,
+) (err error) {
+	switch rt {
+	case guestrequest.RequestTypeAdd:
+		layerPaths := make([]string, len(cl.Layers))
+		for i, layer := range cl.Layers {
+			layerPaths[i] = layer.Path
+		}
+		return securityPolicy.EnforceOverlayMountPolicy(ctx, containerID, layerPaths, cl.ContainerRootPath)
+	case guestrequest.RequestTypeRemove:
+		return securityPolicy.EnforceOverlayUnmountPolicy(ctx, cl.ContainerRootPath)
+	default:
+		return newInvalidRequestTypeError(rt)
+	}
+}
 
 func newInvalidRequestTypeError(rt guestrequest.RequestType) error {
 	return errors.Errorf("the RequestType %q is not supported", rt)
@@ -45,81 +86,83 @@ func unmarshalContainerModifySettings(req *request) (_ *prot.ContainerModifySett
 		modifyGuestSettingsRequest.RequestType = guestrequest.RequestTypeAdd
 	}
 
-	switch modifyGuestSettingsRequest.ResourceType {
-	case guestresource.ResourceTypeCWCOWCombinedLayers:
-		settings := &guestresource.CWCOWCombinedLayers{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeCombinedLayers request")
-		}
-		modifyGuestSettingsRequest.Settings = settings
+	if modifyGuestSettingsRequest.ResourceType != "" {
+		switch modifyGuestSettingsRequest.ResourceType {
+		case guestresource.ResourceTypeCWCOWCombinedLayers:
+			settings := &guestresource.CWCOWCombinedLayers{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeCombinedLayers request")
+			}
+			modifyGuestSettingsRequest.Settings = settings
 
-	case guestresource.ResourceTypeCombinedLayers:
-		settings := &guestresource.WCOWCombinedLayers{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeCombinedLayers request")
-		}
-		modifyGuestSettingsRequest.Settings = settings
+		case guestresource.ResourceTypeCombinedLayers:
+			settings := &guestresource.WCOWCombinedLayers{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeCombinedLayers request")
+			}
+			modifyGuestSettingsRequest.Settings = settings
 
-	case guestresource.ResourceTypeNetworkNamespace:
-		settings := &hcn.HostComputeNamespace{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeNetworkNamespace request")
-		}
-		modifyGuestSettingsRequest.Settings = settings
+		case guestresource.ResourceTypeNetworkNamespace:
+			settings := &hcn.HostComputeNamespace{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeNetworkNamespace request")
+			}
+			modifyGuestSettingsRequest.Settings = settings
 
-	case guestresource.ResourceTypeNetwork:
-		settings := &guestrequest.NetworkModifyRequest{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeNetwork request")
-		}
-		modifyGuestSettingsRequest.Settings = settings
+		case guestresource.ResourceTypeNetwork:
+			settings := &guestrequest.NetworkModifyRequest{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeNetwork request")
+			}
+			modifyGuestSettingsRequest.Settings = settings
 
-	case guestresource.ResourceTypeMappedVirtualDisk:
-		wcowMappedVirtualDisk := &guestresource.WCOWMappedVirtualDisk{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, wcowMappedVirtualDisk); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeMappedVirtualDisk request")
-		}
-		modifyGuestSettingsRequest.Settings = wcowMappedVirtualDisk
+		case guestresource.ResourceTypeMappedVirtualDisk:
+			wcowMappedVirtualDisk := &guestresource.WCOWMappedVirtualDisk{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, wcowMappedVirtualDisk); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeMappedVirtualDisk request")
+			}
+			modifyGuestSettingsRequest.Settings = wcowMappedVirtualDisk
 
-	case guestresource.ResourceTypeHvSocket:
-		hvSocketAddress := &hcsschema.HvSocketAddress{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, hvSocketAddress); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeHvSocket request")
-		}
-		modifyGuestSettingsRequest.Settings = hvSocketAddress
+		case guestresource.ResourceTypeHvSocket:
+			hvSocketAddress := &hcsschema.HvSocketAddress{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, hvSocketAddress); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeHvSocket request")
+			}
+			modifyGuestSettingsRequest.Settings = hvSocketAddress
 
-	case guestresource.ResourceTypeMappedDirectory:
-		settings := &hcsschema.MappedDirectory{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeMappedDirectory request")
-		}
-		modifyGuestSettingsRequest.Settings = settings
+		case guestresource.ResourceTypeMappedDirectory:
+			settings := &hcsschema.MappedDirectory{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, settings); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeMappedDirectory request")
+			}
+			modifyGuestSettingsRequest.Settings = settings
 
-	case guestresource.ResourceTypeSecurityPolicy:
-		securityPolicyRequest := &guestresource.WCOWConfidentialOptions{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, securityPolicyRequest); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeSecurityPolicy request")
-		}
-		modifyGuestSettingsRequest.Settings = securityPolicyRequest
+		case guestresource.ResourceTypeSecurityPolicy:
+			securityPolicyRequest := &guestresource.WCOWConfidentialOptions{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, securityPolicyRequest); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeSecurityPolicy request")
+			}
+			modifyGuestSettingsRequest.Settings = securityPolicyRequest
 
-	case guestresource.ResourceTypeMappedVirtualDiskForContainerScratch:
-		wcowMappedVirtualDisk := &guestresource.WCOWMappedVirtualDisk{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, wcowMappedVirtualDisk); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeMappedVirtualDisk request")
-		}
-		modifyGuestSettingsRequest.Settings = wcowMappedVirtualDisk
+		case guestresource.ResourceTypeMappedVirtualDiskForContainerScratch:
+			wcowMappedVirtualDisk := &guestresource.WCOWMappedVirtualDisk{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, wcowMappedVirtualDisk); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeMappedVirtualDisk request")
+			}
+			modifyGuestSettingsRequest.Settings = wcowMappedVirtualDisk
 
-	case guestresource.ResourceTypeWCOWBlockCims:
-		wcowBlockCimMounts := &guestresource.WCOWBlockCIMMounts{}
-		if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, wcowBlockCimMounts); err != nil {
-			return nil, errors.Wrap(err, "invalid ResourceTypeWCOWBlockCims request")
-		}
-		modifyGuestSettingsRequest.Settings = wcowBlockCimMounts
+		case guestresource.ResourceTypeWCOWBlockCims:
+			wcowBlockCimMounts := &guestresource.WCOWBlockCIMMounts{}
+			if err := commonutils.UnmarshalJSONWithHresult(rawGuestRequest, wcowBlockCimMounts); err != nil {
+				return nil, errors.Wrap(err, "invalid ResourceTypeWCOWBlockCims request")
+			}
+			modifyGuestSettingsRequest.Settings = wcowBlockCimMounts
 
-	default:
-		// Invalid request
-		log.G(ctx).Errorf("Invald modifySettingsRequest: %v", modifyGuestSettingsRequest.ResourceType)
-		return nil, fmt.Errorf("invald modifySettingsRequest")
+		default:
+			// Invalid request
+			log.G(ctx).Errorf("Invald modifySettingsRequest: %v", modifyGuestSettingsRequest.ResourceType)
+			return nil, fmt.Errorf("invald modifySettingsRequest")
+		}
 	}
 	r.Request = &modifyGuestSettingsRequest
 	return &r, nil

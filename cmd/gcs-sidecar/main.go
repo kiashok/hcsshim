@@ -13,18 +13,19 @@ import (
 	"github.com/Microsoft/hcsshim/internal/gcs/prot"
 	shimlog "github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oc"
+	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 
-	gcsBridge "github.com/Microsoft/hcsshim/internal/gcs-sidecar"
+	sidecar "github.com/Microsoft/hcsshim/internal/gcs-sidecar"
 )
 
 var (
 	// TODO (kiashok): cleanup once logging for gcs-sidecar is finalized
-	logFile  = "C:\\logs\\gcs-sidecar.log"
+	logFile  = "C:\\gcs-sidecar.log"
 	logLevel = logrus.TraceLevel
 )
 
@@ -125,7 +126,6 @@ func runService(name string, isDebug bool) error {
 
 func main() {
 	ctx := context.Background()
-
 	logFileHandle, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_SYNC|os.O_TRUNC, 0666)
 	if err != nil {
 		fmt.Printf("error opening file: %v", err)
@@ -199,13 +199,25 @@ func main() {
 		return
 	}
 
-	// TODO (kiashok/Mahati):
+	// TODO CLEANUP (kiashok/Mahati):
 	// Finalize on initial policy state.
 	// Note: gcs-sidecar can be used for non-confidentail hyperv wcow
-	// as well.
-
+	// as well. So we do not always want to initialize an open policy
+	// by default.
+	var initialEnforcer securitypolicy.SecurityPolicyEnforcer
+	initialPolicyStance := "allow"
+	switch initialPolicyStance {
+	case "allow":
+		initialEnforcer = &securitypolicy.OpenDoorSecurityPolicyEnforcer{}
+		logrus.Tracef("initial-policy-stance: allow")
+	case "deny":
+		initialEnforcer = &securitypolicy.ClosedDoorSecurityPolicyEnforcer{}
+		logrus.Tracef("initial-policy-stance: deny")
+	default:
+		logrus.Error("unknown initial-policy-stance")
+	}
 	// 3. Create bridge and initializa
-	brdg := gcsBridge.NewBridge(shimCon, gcsCon, nil)
+	brdg := sidecar.NewBridge(shimCon, gcsCon, initialEnforcer)
 	brdg.AssignHandlers()
 
 	// 3. Listen and serve for hcsshim requests.

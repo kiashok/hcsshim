@@ -6,10 +6,10 @@ package fsformatter
 import (
 	"context"
 	"encoding/binary"
+	"syscall"
 	"unicode/utf16"
 	"unsafe"
 
-	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
@@ -31,6 +31,13 @@ const (
 	KERNEL_FORMAT_VOLUME_WIN32_DRIVER_PATH                  = "\\\\?\\KernelFSFormatter"
 	// Allocate large enough buffer for output from fsFormatter
 	MAX_SIZE_OF_OUTPUT_BUFFER = uint32(512)
+
+	// KERNEL_FORMAT_VOLUME_FORMAT_REFS_PARAMETERS member offsets
+	clusterSizeOffset      = 0
+	checksumTypeOffset     = 4
+	useDataIntegrityOffset = 6
+	majorVersionOffset     = 8
+	minorVersionOffset     = 10
 )
 
 type KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPES uint32
@@ -179,6 +186,10 @@ func KmFmtCreateFormatOutputBuffer() *KernelFormarVolumeFormatOutputBuffer {
 	return outputBuffer
 }
 
+func toUTF16(s string) []uint16 {
+	return utf16.Encode([]rune(s))
+}
+
 // KmFmtCreateFormatInputBuffer formats an input buffer as expected
 // by the refsFormatter driver.
 // diskPath represents disk path in VirtualDevObjectPathFormat.
@@ -186,7 +197,7 @@ func KmFmtCreateFormatInputBuffer(diskPath string) *KernelFormatVolumeFormatInpu
 	refsParametersBuf := make([]byte, unsafe.Sizeof(KernelFormatVolumeFormatRefsParameters{}))
 	refsParameters := (*KernelFormatVolumeFormatRefsParameters)(unsafe.Pointer(&refsParametersBuf[0]))
 
-	utf16DiskPath := utf16.Encode([]rune(diskPath))
+	utf16DiskPath := toUTF16(diskPath)
 	wcharDiskPathLength := uint16(len(utf16DiskPath) * SIZE_OF_WCHAR)
 
 	refsParameters.ClusterSize = 0x1000
@@ -207,31 +218,24 @@ func KmFmtCreateFormatInputBuffer(diskPath string) *KernelFormatVolumeFormatInpu
 	inputBuffer.FsParameters.VolumeLabel = [33]uint16{}
 
 	// Write KERNEL_FORMAT_VOLUME_FORMAT_REFS_PARAMETERS
-	// Write the ClusterSize (8 bytes)
-	binary.LittleEndian.PutUint32(inputBuffer.FsParameters.RefsFormatterParams[0:], refsParameters.ClusterSize)
-	// Write the MetadataChecksumType (2 bytes)
-	binary.LittleEndian.PutUint16(inputBuffer.FsParameters.RefsFormatterParams[4:], refsParameters.MetadataChecksumType)
-	// Write the UseDataIntegrity (1 byte)
+	binary.LittleEndian.PutUint32(inputBuffer.FsParameters.RefsFormatterParams[clusterSizeOffset:], refsParameters.ClusterSize)
+	binary.LittleEndian.PutUint16(inputBuffer.FsParameters.RefsFormatterParams[checksumTypeOffset:], refsParameters.MetadataChecksumType)
 	if refsParameters.UseDataIntegrity {
-		inputBuffer.FsParameters.RefsFormatterParams[6] = 1
+		inputBuffer.FsParameters.RefsFormatterParams[useDataIntegrityOffset] = 1
 	} else {
-		inputBuffer.FsParameters.RefsFormatterParams[6] = 0
+		inputBuffer.FsParameters.RefsFormatterParams[useDataIntegrityOffset] = 0
 	}
-	// Write the MajorVersion (2 bytes)
-	binary.LittleEndian.PutUint16(inputBuffer.FsParameters.RefsFormatterParams[8:], refsParameters.MajorVersion)
-	// Write the MinorVersion (2 bytes)
-	binary.LittleEndian.PutUint16(inputBuffer.FsParameters.RefsFormatterParams[10:], refsParameters.MinorVersion)
+	binary.LittleEndian.PutUint16(inputBuffer.FsParameters.RefsFormatterParams[majorVersionOffset:], refsParameters.MajorVersion)
+	binary.LittleEndian.PutUint16(inputBuffer.FsParameters.RefsFormatterParams[minorVersionOffset:], refsParameters.MinorVersion)
 
 	// Finally write the diskPathLength and diskPathBuffer with the input disk path
 	inputBuffer.DiskPathLength = wcharDiskPathLength
 	// DiskBuffer writing
-	ptr := unsafe.Pointer(uintptr(unsafe.Pointer(inputBuffer)) + uintptr(getInputBufferDiskPathBufferOffset()))
+	ptr := unsafe.Add(unsafe.Pointer(inputBuffer), getInputBufferDiskPathBufferOffset())
 	// Convert the string to UTF-16 slice
-	utf16Array := utf16.Encode([]rune(diskPath))
-	for _, val := range utf16Array {
-		*(*uint16)(ptr) = val
-		ptr = unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + uintptr(2))
-	}
+	utf16Array := toUTF16(diskPath)
+	diskPathBuf := unsafe.Slice((*uint16)(ptr), len(utf16Array))
+	copy(diskPathBuf, utf16Array)
 
 	return inputBuffer
 }
@@ -273,17 +277,7 @@ func InvokeFsFormatter(ctx context.Context, diskPath string) (string, error) {
 
 	// Read the returned volume path from the corresponding offset in outputBuffer
 	ptr := unsafe.Pointer(uintptr(unsafe.Pointer(outputBuffer)) + uintptr(GetVolumePathBufferOffset()))
-	var mountedVolBytes []byte
-	/*
-		for i := 0; i < int(outputBuffer.VolumePathLength); i++ {
-			byteVal := *((*byte)(unsafe.Pointer(uintptr(ptr) + uintptr(i))))
-			result = append(result, byteVal)
-		}
-	*/
-	// Create a byte slice pointing directly to the memory region
-	mountedVolBytes = unsafe.Slice((*byte)(ptr), outputBuffer.VolumePathLength)
-	mountedVolumePath := string(mountedVolBytes)
-	log.G(ctx).Debugf("MountedVolumePath returned: %v", mountedVolumePath)
-
+	utf16Data := unsafe.Slice((*uint16)(ptr), outputBuffer.VolumePathLength/2)
+	mountedVolumePath := syscall.UTF16ToString(utf16Data)
 	return mountedVolumePath, err
 }

@@ -345,14 +345,13 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 		var err error
 		for req := range b.sendToGCSCh {
 			// Forward message to gcs
-			log.G(req.ctx).Tracef("bridge send to gcs, req %v", req)
+			log.G(req.ctx).Tracef("bridge send to gcs, req %v, %v", req.header.Type.String(), string(req.message))
 			buffer, err := b.prepareResponseMessage(req.header, req.message)
 			if err != nil {
 				err = errors.Wrap(err, "error preparing response")
 				logrus.Error(err)
 				break
 			}
-
 			_, err = buffer.WriteTo(b.inboxGCSConn)
 			if err != nil {
 				err = errors.Wrap(err, "err forwarding shim req to inbox GCS")
@@ -378,7 +377,7 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 
 			// Forward to shim
 			resp := bridgeResponse{
-				ctx:      context.Background(), //TODO
+				ctx:      context.Background(),
 				header:   header,
 				response: message,
 			}
