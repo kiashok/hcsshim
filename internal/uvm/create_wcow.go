@@ -40,6 +40,9 @@ type ConfidentialWCOWOptions struct {
 	IsolationType      string
 	DisableSecureBoot  bool
 	FirmwareParameters string
+
+	// Temp (kiashok):
+	NoSecurityHardware bool
 }
 
 // OptionsWCOW are the set of options passed to CreateWCOW() to create a utility vm.
@@ -524,6 +527,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 			WCOWSecurityPolicyEnabled:  true,
 			WCOWSecurityPolicy:         opts.SecurityPolicy,
 			WCOWSecurityPolicyEnforcer: opts.SecurityPolicyEnforcer,
+			NoSecurityHardware:         opts.NoSecurityHardware,
 		}
 		doc, err = prepareSecurityConfigDoc(ctx, uvm, opts)
 		log.G(ctx).Tracef("CreateWCOW prepareSecurityConfigDoc result doc: %v err %v", doc, err)

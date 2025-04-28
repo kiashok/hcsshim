@@ -338,6 +338,7 @@ func (uvm *UtilityVM) Start(ctx context.Context) (err error) {
 		copts := []WCOWConfidentialUVMOpt{
 			WithWCOWSecurityPolicy(uvm.WCOWconfidentialUVMOptions.WCOWSecurityPolicy),
 			WithWCOWSecurityPolicyEnforcer(uvm.WCOWconfidentialUVMOptions.WCOWSecurityPolicyEnforcer),
+			WithWCOWNoSecurityHardware(uvm.WCOWconfidentialUVMOptions.NoSecurityHardware),
 		}
 		if err := uvm.SetWCOWConfidentialUVMOptions(ctx, copts...); err != nil {
 			return err

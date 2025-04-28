@@ -194,8 +194,17 @@ func handleAnnotationFullyPhysicallyBacked(ctx context.Context, a map[string]str
 func handleWCOWSecurityPolicy(ctx context.Context, a map[string]string, wopts *uvm.OptionsWCOW) error {
 	wopts.SecurityPolicy = ParseAnnotationsString(a, annotations.WCOWSecurityPolicy, wopts.SecurityPolicy)
 	wopts.SecurityPolicyEnforcer = ParseAnnotationsString(a, annotations.WCOWSecurityPolicyEnforcer, wopts.SecurityPolicyEnforcer)
+	// allow actual isolated boot etc to be ignored if we have no hardware. Required for dev
+	// this is not a security issue as the attestation will fail without a genuine report
+	noSecurityHardware := ParseAnnotationsBool(ctx, a, annotations.NoSecurityHardware, false)
+
+	// TODO: Process annotations.NoSecurityHardware here for cwcow cases!
 	if len(wopts.SecurityPolicy) > 0 {
 		wopts.SecurityPolicyEnabled = true
+
+		if noSecurityHardware {
+			wopts.NoSecurityHardware = true
+		}
 		return uvm.SetDefaultConfidentialWCOWBootConfig(wopts)
 	}
 	return nil

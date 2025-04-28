@@ -244,4 +244,5 @@ type WCOWConfidentialOptions struct {
 	WCOWSecurityPolicyEnabled bool
 	// Set which security policy enforcer to use (open door or rego). This allows for better fallback mechanic.
 	WCOWSecurityPolicyEnforcer string
+	NoSecurityHardware         bool
 }

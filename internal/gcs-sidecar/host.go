@@ -4,12 +4,15 @@
 package bridge
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"sync"
 
+	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
+	"github.com/Microsoft/hcsshim/internal/pspdriver"
 	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
+	"github.com/pkg/errors"
 )
 
 type Host struct {
@@ -32,12 +35,31 @@ func NewHost(initialEnforcer securitypolicy.SecurityPolicyEnforcer) *Host {
 	}
 }
 
-func (h *Host) SetWCOWConfidentialUVMOptions(securityPolicyRequest *guestresource.WCOWConfidentialOptions) error {
+func (h *Host) isSecurityPolicyEnforcerInitialized() bool {
+	return h.securityPolicyEnforcer != nil
+}
+
+func (h *Host) SetWCOWConfidentialUVMOptions(ctx context.Context, securityPolicyRequest *guestresource.WCOWConfidentialOptions) error {
 	h.policyMutex.Lock()
 	defer h.policyMutex.Unlock()
 
 	if h.securityPolicyEnforcerSet {
 		return errors.New("security policy has already been set")
+	}
+
+	log.G(ctx).Tracef("NoSecurtyHardware annotation: %v", securityPolicyRequest.NoSecurityHardware)
+	if securityPolicyRequest.NoSecurityHardware || pspdriver.IsSNPEnabled(ctx) {
+		// Start the psp driver
+		if err := pspdriver.StartPSPDriver(ctx); err != nil {
+			// Failed to start psp driver, return prematurely
+			return errors.Wrapf(err, "failed to start PSP driver")
+		}
+	} else {
+		// failed to load PSP driver, error out
+		// TODO (kiashok): Following log can be cleaned up once the caller stops ignoring failure
+		// due to "rego" error.
+		log.G(ctx).Fatal("failed to load PSP driver: no hardware support or annotation specified")
+		return fmt.Errorf("failed to load PSP driver: no hardware support or annotation specified")
 	}
 
 	// This limit ensures messages are below the character truncation limit that

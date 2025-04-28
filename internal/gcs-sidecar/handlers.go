@@ -334,8 +334,13 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 		case guestresource.ResourceTypeSecurityPolicy:
 			securityPolicyRequest := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWConfidentialOptions)
 			log.G(ctx).Tracef("WCOWConfidentialOptions: { %v}", securityPolicyRequest)
-			_ = b.hostState.SetWCOWConfidentialUVMOptions(securityPolicyRequest)
-
+			_ = b.hostState.SetWCOWConfidentialUVMOptions(req.ctx, securityPolicyRequest)
+			/*
+				// ignore the returned err temporarily as it fails with "unknown policy rego" error
+					; err != nil {
+						return err
+					}
+			*/
 			// Send response back to shim
 			resp := &prot.ResponseBase{
 				Result:     0, // 0 means success

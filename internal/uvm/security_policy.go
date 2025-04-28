@@ -45,6 +45,13 @@ func WithWCOWSecurityPolicy(policy string) WCOWConfidentialUVMOpt {
 	}
 }
 
+func WithWCOWNoSecurityHardware(noSecurityHardware bool) WCOWConfidentialUVMOpt {
+	return func(ctx context.Context, r *guestresource.WCOWConfidentialOptions) error {
+		r.NoSecurityHardware = noSecurityHardware
+		return nil
+	}
+}
+
 // WithSecurityPolicyEnforcer sets the desired enforcer type for the resource.
 func WithWCOWSecurityPolicyEnforcer(enforcer string) WCOWConfidentialUVMOpt {
 	return func(ctx context.Context, r *guestresource.WCOWConfidentialOptions) error {
