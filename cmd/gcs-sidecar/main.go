@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -24,8 +25,8 @@ import (
 )
 
 var (
-	logFile  = "C:\\gcs-sidecar.log"
-	logLevel = logrus.TraceLevel
+	defaultLogFile  = "C:\\gcs-sidecar-logs.log"
+	defaultLogLevel = "trace"
 )
 
 type handler struct {
@@ -69,22 +70,19 @@ func (h *handler) Execute(args []string, r <-chan svc.ChangeRequest, status chan
 	status <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 
 loop:
-	for {
-		select {
-		case c := <-r:
-			switch c.Cmd {
-			case svc.Interrogate:
-				status <- c.CurrentStatus
-			case svc.Stop, svc.Shutdown:
-				logrus.Println("Shutting service...!")
-				break loop
-			case svc.Pause:
-				status <- svc.Status{State: svc.Paused, Accepts: cmdsAccepted}
-			case svc.Continue:
-				status <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
-			default:
-				logrus.Printf("Unexpected service control request #%d", c)
-			}
+	for c := range r {
+		switch c.Cmd {
+		case svc.Interrogate:
+			status <- c.CurrentStatus
+		case svc.Stop, svc.Shutdown:
+			logrus.Println("Shutting service...!")
+			break loop
+		case svc.Pause:
+			status <- svc.Status{State: svc.Paused, Accepts: cmdsAccepted}
+		case svc.Continue:
+			status <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
+		default:
+			logrus.Printf("Unexpected service control request #%d", c)
 		}
 	}
 
@@ -124,15 +122,42 @@ func runService(name string, isDebug bool) error {
 }
 
 func main() {
+	logLevel := flag.String("loglevel",
+		defaultLogLevel,
+		"Logging Level: trace, debug, info, warning, error, fatal, panic.")
+	logFile := flag.String("logfile",
+		defaultLogFile,
+		"Logging Target. Default is at C:\\gcs-sidecar-logs.log inside UVM")
+	isConfidentialWCOW := flag.Bool("confidential",
+		false,
+		"If true, start gcs-sidecar for confidential windows containers")
+	initialPolicyStance := flag.String("initial-policy-stance",
+		"allow",
+		"Stance: allow, deny.")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "\nUsage of %s:\n", os.Args[0])
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "Examples:\n")
+		fmt.Fprintf(os.Stderr, "    %s -loglevel=trace -logfile=C:\\sidecarLogs.log \n", os.Args[0])
+	}
+
+	flag.Parse()
+
 	ctx := context.Background()
-	logFileHandle, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_SYNC|os.O_TRUNC, 0666)
+	logFileHandle, err := os.OpenFile(*logFile, os.O_RDWR|os.O_CREATE|os.O_SYNC|os.O_TRUNC, 0666)
 	if err != nil {
 		fmt.Printf("error opening file: %v", err)
 	}
 	defer logFileHandle.Close()
 
 	logrus.AddHook(shimlog.NewHook())
-	logrus.SetLevel(logLevel)
+
+	level, err := logrus.ParseLevel(*logLevel)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	logrus.SetLevel(level)
 	logrus.SetOutput(logFileHandle)
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 	trace.RegisterExporter(&oc.LogrusExporter{})
@@ -167,7 +192,7 @@ func main() {
 
 	// 1. Start external server to connect with inbox GCS
 	listener, err := winio.ListenHvsock(&winio.HvsockAddr{
-		VMID:      prot.HV_GUID_LOOPBACK,
+		VMID:      prot.HvGUIDLoopback,
 		ServiceID: prot.WindowsGcsHvsockServiceID,
 	})
 	if err != nil {
@@ -175,8 +200,7 @@ func main() {
 		return
 	}
 
-	var gcsListener net.Listener
-	gcsListener = listener
+	var gcsListener net.Listener = listener
 	gcsCon, err := acceptAndClose(ctx, gcsListener)
 	if err != nil {
 		logrus.WithError(err).Errorf("error accepting inbox GCS connection")
@@ -185,7 +209,7 @@ func main() {
 
 	// 2. Setup connection with external gcs connection started from hcsshim
 	hvsockAddr := &winio.HvsockAddr{
-		VMID:      prot.HV_GUID_PARENT,
+		VMID:      prot.HvGUIDParent,
 		ServiceID: prot.WindowsSidecarGcsHvsockServiceID,
 	}
 
@@ -198,22 +222,23 @@ func main() {
 		return
 	}
 
-	// TODO CLEANUP (kiashok/Mahati):
-	// Finalize on initial policy state.
-	// Note: gcs-sidecar can be used for non-confidentail hyperv wcow
-	// as well. So we do not always want to initialize an open policy
-	// by default.
+	// gcs-sidecar can be used for non-confidentail hyperv wcow
+	// as well. So we do not always want to check for initialPolicyStance
 	var initialEnforcer securitypolicy.SecurityPolicyEnforcer
-	initialPolicyStance := "allow"
-	switch initialPolicyStance {
-	case "allow":
-		initialEnforcer = &securitypolicy.OpenDoorSecurityPolicyEnforcer{}
-		logrus.Tracef("initial-policy-stance: allow")
-	case "deny":
-		initialEnforcer = &securitypolicy.ClosedDoorSecurityPolicyEnforcer{}
-		logrus.Tracef("initial-policy-stance: deny")
-	default:
-		logrus.Error("unknown initial-policy-stance")
+	if *isConfidentialWCOW {
+		if *initialPolicyStance == "" {
+			*initialPolicyStance = "allow"
+		}
+		switch *initialPolicyStance {
+		case "allow":
+			initialEnforcer = &securitypolicy.OpenDoorSecurityPolicyEnforcer{}
+			logrus.Tracef("initial-policy-stance: allow")
+		case "deny":
+			initialEnforcer = &securitypolicy.ClosedDoorSecurityPolicyEnforcer{}
+			logrus.Tracef("initial-policy-stance: deny")
+		default:
+			logrus.Error("unknown initial-policy-stance")
+		}
 	}
 	// 3. Create bridge and initializa
 	brdg := sidecar.NewBridge(shimCon, gcsCon, initialEnforcer)

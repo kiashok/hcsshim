@@ -34,7 +34,7 @@ type responseMessage interface {
 
 // rpc represents an outstanding rpc request to the guest
 type rpc struct {
-	proc    prot.RpcProc
+	proc    prot.RPCProc
 	id      int64
 	req     requestMessage
 	resp    responseMessage
@@ -130,7 +130,7 @@ func (brdg *bridge) Wait() error {
 // AsyncRPC sends an RPC request to the guest but does not wait for a response.
 // If the message cannot be sent before the context is done, then an error is
 // returned.
-func (brdg *bridge) AsyncRPC(ctx context.Context, proc prot.RpcProc, req requestMessage, resp responseMessage) (*rpc, error) {
+func (brdg *bridge) AsyncRPC(ctx context.Context, proc prot.RPCProc, req requestMessage, resp responseMessage) (*rpc, error) {
 	call := &rpc{
 		ch:   make(chan struct{}),
 		proc: proc,
@@ -211,7 +211,7 @@ func (call *rpc) Wait() {
 // If allowCancel is set and the context becomes done, returns an error without
 // waiting for a response. Avoid this on messages that are not idempotent or
 // otherwise safe to ignore the response of.
-func (brdg *bridge) RPC(ctx context.Context, proc prot.RpcProc, req requestMessage, resp responseMessage, allowCancel bool) error {
+func (brdg *bridge) RPC(ctx context.Context, proc prot.RPCProc, req requestMessage, resp responseMessage, allowCancel bool) error {
 	call, err := brdg.AsyncRPC(ctx, proc, req, resp)
 	if err != nil {
 		return err
@@ -395,9 +395,9 @@ func (brdg *bridge) writeMessage(buf *bytes.Buffer, enc *json.Encoder, typ prot.
 		b := buf.Bytes()[prot.HdrSize:]
 		switch typ {
 		// container environment vars are in rpCreate for linux; rpcExecuteProcess for windows
-		case prot.MsgType(prot.RpcCreate) | prot.MsgTypeRequest:
+		case prot.MsgType(prot.RPCCreate) | prot.MsgTypeRequest:
 			b, err = log.ScrubBridgeCreate(b)
-		case prot.MsgType(prot.RpcExecuteProcess) | prot.MsgTypeRequest:
+		case prot.MsgType(prot.RPCExecuteProcess) | prot.MsgTypeRequest:
 			b, err = log.ScrubBridgeExecProcess(b)
 		}
 		if err != nil {

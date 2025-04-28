@@ -30,7 +30,7 @@ const (
 )
 
 // e0e16197-dd56-4a10-9195-5ee7a155a838
-var HV_GUID_LOOPBACK = guid.GUID{
+var HvGUIDLoopback = guid.GUID{
 	Data1: 0xe0e16197,
 	Data2: 0xdd56,
 	Data3: 0x4a10,
@@ -38,7 +38,7 @@ var HV_GUID_LOOPBACK = guid.GUID{
 }
 
 // a42e7cda-d03f-480c-9cc2-a4de20abb878
-var HV_GUID_PARENT = guid.GUID{
+var HvGUIDParent = guid.GUID{
 	Data1: 0xa42e7cda,
 	Data2: 0xd03f,
 	Data3: 0x480c,
@@ -83,57 +83,57 @@ func (a *AnyInString) UnmarshalText(b []byte) error {
 	return json.Unmarshal(b, &a.Value)
 }
 
-type RpcProc uint32
+type RPCProc uint32
 
 const (
-	RpcCreate RpcProc = (iota+1)<<8 | 1
-	RpcStart
-	RpcShutdownGraceful
-	RpcShutdownForced
-	RpcExecuteProcess
-	RpcWaitForProcess
-	RpcSignalProcess
-	RpcResizeConsole
-	RpcGetProperties
-	RpcModifySettings
-	RpcNegotiateProtocol
-	RpcDumpStacks
-	RpcDeleteContainerState
-	RpcUpdateContainer
-	RpcLifecycleNotification
+	RPCCreate RPCProc = (iota+1)<<8 | 1
+	RPCStart
+	RPCShutdownGraceful
+	RPCShutdownForced
+	RPCExecuteProcess
+	RPCWaitForProcess
+	RPCSignalProcess
+	RPCResizeConsole
+	RPCGetProperties
+	RPCModifySettings
+	RPCNegotiateProtocol
+	RPCDumpStacks
+	RPCDeleteContainerState
+	RPCUpdateContainer
+	RPCLifecycleNotification
 )
 
-func (rpc RpcProc) String() string {
+func (rpc RPCProc) String() string {
 	switch rpc {
-	case RpcCreate:
+	case RPCCreate:
 		return "Create"
-	case RpcStart:
+	case RPCStart:
 		return "Start"
-	case RpcShutdownGraceful:
+	case RPCShutdownGraceful:
 		return "ShutdownGraceful"
-	case RpcShutdownForced:
+	case RPCShutdownForced:
 		return "ShutdownForced"
-	case RpcExecuteProcess:
+	case RPCExecuteProcess:
 		return "ExecuteProcess"
-	case RpcWaitForProcess:
+	case RPCWaitForProcess:
 		return "WaitForProcess"
-	case RpcSignalProcess:
+	case RPCSignalProcess:
 		return "SignalProcess"
-	case RpcResizeConsole:
+	case RPCResizeConsole:
 		return "ResizeConsole"
-	case RpcGetProperties:
+	case RPCGetProperties:
 		return "GetProperties"
-	case RpcModifySettings:
+	case RPCModifySettings:
 		return "ModifySettings"
-	case RpcNegotiateProtocol:
+	case RPCNegotiateProtocol:
 		return "NegotiateProtocol"
-	case RpcDumpStacks:
+	case RPCDumpStacks:
 		return "DumpStacks"
-	case RpcDeleteContainerState:
+	case RPCDeleteContainerState:
 		return "DeleteContainerState"
-	case RpcUpdateContainer:
+	case RPCUpdateContainer:
 		return "UpdateContainer"
-	case RpcLifecycleNotification:
+	case RPCLifecycleNotification:
 		return "LifecycleNotification"
 	default:
 		return "0x" + strconv.FormatUint(uint64(rpc), 16)
@@ -170,7 +170,7 @@ func (typ MsgType) String() string {
 	default:
 		return fmt.Sprintf("%#x", uint32(typ))
 	}
-	s += RpcProc(typ &^ MsgTypeMask).String()
+	s += RPCProc(typ &^ MsgTypeMask).String()
 	return s + ")"
 }
 

@@ -63,7 +63,7 @@ func (b *Bridge) createContainer(req *request) (err error) {
 		container := hostedSystemConfig.Container
 		log.G(ctx).Tracef("createContainer: HostedSystemConfig: {schemaVersion: %v, container: %v}}", schemaVersion, container)
 	} else {
-		return fmt.Errorf("Invalid request to createContainer")
+		return fmt.Errorf("invalid request to createContainer")
 	}
 
 	b.forwardRequestToGcs(req)
@@ -329,7 +329,7 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 				Result:     0, // 0 means success
 				ActivityID: req.activityID,
 			}
-			err := b.sendResponseToShim(req.ctx, prot.RpcModifySettings, req.header.ID, resp)
+			err := b.sendResponseToShim(req.ctx, prot.RPCModifySettings, req.header.ID, resp)
 			if err != nil {
 				return errors.Wrap(err, "error sending response to hcsshim")
 			}
@@ -344,7 +344,6 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 			time.Sleep(2 * time.Second)
 
 			var layerCIMs []*cimfs.BlockCIM
-			ctx := req.ctx
 			for _, blockCimDevice := range wcowBlockCimMounts.BlockCIMs {
 				// Get the scsi device path for the blockCim lun
 				devNumber, err := windevice.GetDevicePathAndNumberFromControllerLUN(
@@ -363,12 +362,12 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 			}
 			if len(layerCIMs) > 1 {
 				// Get the topmost merge CIM and invoke the MountMergedBlockCIMs
-				_, err := cimfs.MountMergedBlockCIMs(layerCIMs[0], layerCIMs[1:], wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGuid)
+				_, err := cimfs.MountMergedBlockCIMs(layerCIMs[0], layerCIMs[1:], wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGUID)
 				if err != nil {
 					return errors.Wrap(err, "error mounting multilayer block cims")
 				}
 			} else {
-				_, err := cimfs.Mount(filepath.Join(layerCIMs[0].BlockPath, layerCIMs[0].CimName), wcowBlockCimMounts.VolumeGuid, wcowBlockCimMounts.MountFlags)
+				_, err := cimfs.Mount(filepath.Join(layerCIMs[0].BlockPath, layerCIMs[0].CimName), wcowBlockCimMounts.VolumeGUID, wcowBlockCimMounts.MountFlags)
 				if err != nil {
 					return errors.Wrap(err, "error mounting merged block cims")
 				}
@@ -379,7 +378,7 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 				Result:     0, // 0 means success
 				ActivityID: req.activityID,
 			}
-			err = b.sendResponseToShim(req.ctx, prot.RpcModifySettings, req.header.ID, resp)
+			err = b.sendResponseToShim(req.ctx, prot.RPCModifySettings, req.header.ID, resp)
 			if err != nil {
 				return errors.Wrap(err, "error sending response to hcsshim")
 			}

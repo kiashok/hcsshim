@@ -116,7 +116,7 @@ type BlockCIMDevice struct {
 type WCOWBlockCIMMounts struct {
 	// BlockCIMs should be ordered from merged CIM followed by Layer n .. layer 1
 	BlockCIMs  []BlockCIMDevice `json:"BlockCIMs,omitempty"`
-	VolumeGuid guid.GUID        `json:"VolumeGuid,omitempty"`
+	VolumeGUID guid.GUID        `json:"VolumeGUID,omitempty"`
 	MountFlags uint32           `json:"MountFlags,omitempty"`
 }
 

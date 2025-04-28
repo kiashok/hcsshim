@@ -17,20 +17,20 @@ import (
 // This file contains all the supporting structures needed to make
 // an ioctl call to RefsFormatter.
 const (
-	_IOCTL_KERNEL_FORMAT_VOLUME_FORMAT = 0x40001000
+	IoctlKernelFormatVolumeFormat = 0x40001000
 	// This is used to construct the disk path that refsFormatter
 	// understands. `harddisk%d` here refers to the disk number
 	// associated with the corresponding lun of the attached
 	// scsi device.
-	VirtualDevObjectPathFormat                              = "\\device\\harddisk%d\\partition0"
-	CHECKSUM_TYPE_SHA256                                    = uint16(4)
-	REFS_CHECKSUM_TYPE                                      = CHECKSUM_TYPE_SHA256
-	MAX_SIZE_OF_KERNEL_FORMAT_VOLUME_FORMAT_REFS_PARAMETERS = 16 * 8 // 128 bytes
-	SIZE_OF_WCHAR                                           = int(unsafe.Sizeof(uint16(0)))
-	KERNEL_FORMAT_VOLUME_MAX_VOLUME_LABEL_LENGTH            = uint32(33 * SIZE_OF_WCHAR)
-	KERNEL_FORMAT_VOLUME_WIN32_DRIVER_PATH                  = "\\\\?\\KernelFSFormatter"
+	VirtualDevObjectPathFormat                      = "\\device\\harddisk%d\\partition0"
+	checksumTypeSha256                              = uint16(4)
+	refsChecksumType                                = checksumTypeSha256
+	maxSizeOfKernelFormatVolumeFormatRefsParameters = 16 * 8 // 128 bytes
+	sizeOfWchar                                     = int(unsafe.Sizeof(uint16(0)))
+	kernelFormatVolumeMaxVolumeLabelLength          = uint32(33 * sizeOfWchar)
+	kernelFormatVolumeWin32DriverPath               = "\\\\?\\KernelFSFormatter"
 	// Allocate large enough buffer for output from fsFormatter
-	MAX_SIZE_OF_OUTPUT_BUFFER = uint32(512)
+	maxSizeOfOutputBuffer = uint32(512)
 
 	// KERNEL_FORMAT_VOLUME_FORMAT_REFS_PARAMETERS member offsets
 	clusterSizeOffset      = 0
@@ -40,32 +40,32 @@ const (
 	minorVersionOffset     = 10
 )
 
-type KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPES uint32
+type kernelFormatVolumeFilesystemTypes uint32
 
 const (
-	KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPE_INVALID = KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPES(iota)
-	KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPE_REFS    = KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPES(1)
-	KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPE_MAX     = KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPES(2)
+	kernelFormatVolumeFilesystemTypeInvalid = kernelFormatVolumeFilesystemTypes(iota)
+	kernelFormatVolumeFilesystemTypeRefs    = kernelFormatVolumeFilesystemTypes(1)
+	kernelFormatVolumeFilesystemTypeMax     = kernelFormatVolumeFilesystemTypes(2)
 )
 
 // We only want to allow refs formatting
-func (filesystemType KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPES) String() string {
+func (filesystemType kernelFormatVolumeFilesystemTypes) String() string {
 	switch filesystemType {
-	case KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPE_REFS:
+	case kernelFormatVolumeFilesystemTypeRefs:
 		return "KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPE_REFS"
 	default:
 		return "Unknown"
 	}
 }
 
-type KERNEL_FORMAT_VOLUME_FORMAT_INPUT_BUFFER_FLAGS uint32
+type kernelFormatVolumeFormatInputBufferFlags uint32
 
-const KERNEL_FORMAT_VOLUME_FORMAT_INPUT_BUFFER_FLAG_NONE = KERNEL_FORMAT_VOLUME_FORMAT_INPUT_BUFFER_FLAGS(0x00000000)
+const kernelFormatVolumeFormatInputBufferFlagNone = kernelFormatVolumeFormatInputBufferFlags(0x00000000)
 
-func (flag KERNEL_FORMAT_VOLUME_FORMAT_INPUT_BUFFER_FLAGS) String() string {
+func (flag kernelFormatVolumeFormatInputBufferFlags) String() string {
 	switch flag {
-	case KERNEL_FORMAT_VOLUME_FORMAT_INPUT_BUFFER_FLAG_NONE:
-		return "KERNEL_FORMAT_VOLUME_FORMAT_INPUT_BUFFER_FLAG_NONE"
+	case kernelFormatVolumeFormatInputBufferFlagNone:
+		return "kernelFormatVolumeFormatInputBufferFlagNone"
 	default:
 		return "Unknown"
 	}
@@ -80,9 +80,9 @@ type KernelFormatVolumeFormatRefsParameters struct {
 }
 
 type KernelFormatVolumeFormatFsParameters struct {
-	FileSystemType KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPES
+	FileSystemType kernelFormatVolumeFilesystemTypes
 	// Represents a WCHAR character array
-	VolumeLabel [KERNEL_FORMAT_VOLUME_MAX_VOLUME_LABEL_LENGTH / uint32(SIZE_OF_WCHAR)]uint16
+	VolumeLabel [kernelFormatVolumeMaxVolumeLabelLength / uint32(sizeOfWchar)]uint16
 	// Length of volume label in bytes
 	VolumeLabelLength uint16
 	// RefsFormatterParams represents the following union
@@ -105,7 +105,7 @@ type KernelFormatVolumeFormatFsParameters struct {
 type KernelFormatVolumeFormatInputBuffer struct {
 	Size         uint64
 	FsParameters KernelFormatVolumeFormatFsParameters
-	Flags        KERNEL_FORMAT_VOLUME_FORMAT_INPUT_BUFFER_FLAGS
+	Flags        kernelFormatVolumeFormatInputBufferFlags
 	Reserved     [4]uint32
 	// Size of DiskPathBuffer in bytes
 	DiskPathLength uint16
@@ -114,14 +114,14 @@ type KernelFormatVolumeFormatInputBuffer struct {
 	DiskPathBuffer []uint16
 }
 
-type KERNEL_FORMAT_VOLUME_FORMAT_OUTPUT_BUFFER_FLAGS uint32
+type kernelFormatVolumeFormatOutputBufferFlags uint32
 
-const KERNEL_FORMAT_VOLUME_FORMAT_OUTPUT_BUFFER_FLAG_NONE = KERNEL_FORMAT_VOLUME_FORMAT_OUTPUT_BUFFER_FLAGS(0x00000000)
+const kernelFormatVolumeFormatOutputBufferFlagsNone = kernelFormatVolumeFormatOutputBufferFlags(0x00000000)
 
-func (flag KERNEL_FORMAT_VOLUME_FORMAT_OUTPUT_BUFFER_FLAGS) String() string {
+func (flag kernelFormatVolumeFormatOutputBufferFlags) String() string {
 	switch flag {
-	case KERNEL_FORMAT_VOLUME_FORMAT_OUTPUT_BUFFER_FLAG_NONE:
-		return "KERNEL_FORMAT_VOLUME_FORMAT_OUTPUT_BUFFER_FLAG_NONE"
+	case kernelFormatVolumeFormatOutputBufferFlagsNone:
+		return "kernelFormatVolumeFormatOutputBufferFlagsNone"
 	default:
 		return "Unknown"
 	}
@@ -129,7 +129,7 @@ func (flag KERNEL_FORMAT_VOLUME_FORMAT_OUTPUT_BUFFER_FLAGS) String() string {
 
 type KernelFormarVolumeFormatOutputBuffer struct {
 	Size     uint32
-	Flags    KERNEL_FORMAT_VOLUME_FORMAT_OUTPUT_BUFFER_FLAGS
+	Flags    kernelFormatVolumeFormatOutputBufferFlags
 	Reserved [4]uint32
 	// VolumePathLength holds size of VolumePathBuffer
 	// in bytes
@@ -155,7 +155,7 @@ func getInputBufferSize(wcharDiskPathLength uint16) uint32 {
 	bufferSize := uint32(unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.Size)+
 		/* This is specifically for the union in KernelFormatVolumeFormatFsParameters */
 		unsafe.Offsetof(KernelFormatVolumeFormatFsParameters{}.RefsFormatterParams)+
-		MAX_SIZE_OF_KERNEL_FORMAT_VOLUME_FORMAT_REFS_PARAMETERS+
+		maxSizeOfKernelFormatVolumeFormatRefsParameters+
 		unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.Flags)+
 		unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.Reserved)+
 		unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.DiskPathLength)) +
@@ -168,7 +168,7 @@ func getInputBufferSize(wcharDiskPathLength uint16) uint32 {
 func getInputBufferDiskPathBufferOffset() uint32 {
 	diskPathBufferOffset := uint32(unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.Size) +
 		unsafe.Offsetof(KernelFormatVolumeFormatFsParameters{}.RefsFormatterParams) +
-		MAX_SIZE_OF_KERNEL_FORMAT_VOLUME_FORMAT_REFS_PARAMETERS +
+		maxSizeOfKernelFormatVolumeFormatRefsParameters +
 		unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.Flags) +
 		unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.Reserved) +
 		unsafe.Sizeof(KernelFormatVolumeFormatInputBuffer{}.DiskPathLength))
@@ -179,9 +179,9 @@ func getInputBufferDiskPathBufferOffset() uint32 {
 // KmFmtCreateFormatOutputBuffer formats an output buffer as expected
 // by the fsFormatter driver
 func KmFmtCreateFormatOutputBuffer() *KernelFormarVolumeFormatOutputBuffer {
-	buf := make([]uint16, MAX_SIZE_OF_OUTPUT_BUFFER)
+	buf := make([]uint16, maxSizeOfOutputBuffer)
 	outputBuffer := (*KernelFormarVolumeFormatOutputBuffer)(unsafe.Pointer(&buf[0]))
-	outputBuffer.Size = uint32(MAX_SIZE_OF_OUTPUT_BUFFER)
+	outputBuffer.Size = uint32(maxSizeOfOutputBuffer)
 
 	return outputBuffer
 }
@@ -198,10 +198,10 @@ func KmFmtCreateFormatInputBuffer(diskPath string) *KernelFormatVolumeFormatInpu
 	refsParameters := (*KernelFormatVolumeFormatRefsParameters)(unsafe.Pointer(&refsParametersBuf[0]))
 
 	utf16DiskPath := toUTF16(diskPath)
-	wcharDiskPathLength := uint16(len(utf16DiskPath) * SIZE_OF_WCHAR)
+	wcharDiskPathLength := uint16(len(utf16DiskPath) * sizeOfWchar)
 
 	refsParameters.ClusterSize = 0x1000
-	refsParameters.MetadataChecksumType = REFS_CHECKSUM_TYPE
+	refsParameters.MetadataChecksumType = refsChecksumType
 	refsParameters.UseDataIntegrity = true
 	refsParameters.MajorVersion = uint16(3)
 	refsParameters.MinorVersion = uint16(14)
@@ -211,9 +211,9 @@ func KmFmtCreateFormatInputBuffer(diskPath string) *KernelFormatVolumeFormatInpu
 	inputBuffer := (*KernelFormatVolumeFormatInputBuffer)(unsafe.Pointer(&buf[0]))
 
 	inputBuffer.Size = uint64(bufferSize)
-	inputBuffer.Flags = KERNEL_FORMAT_VOLUME_FORMAT_INPUT_BUFFER_FLAG_NONE
+	inputBuffer.Flags = kernelFormatVolumeFormatInputBufferFlagNone
 
-	inputBuffer.FsParameters.FileSystemType = KERNEL_FORMAT_VOLUME_FILESYSTEM_TYPE_REFS
+	inputBuffer.FsParameters.FileSystemType = kernelFormatVolumeFilesystemTypeRefs
 	inputBuffer.FsParameters.VolumeLabelLength = 0
 	inputBuffer.FsParameters.VolumeLabel = [33]uint16{}
 
@@ -247,7 +247,7 @@ func InvokeFsFormatter(ctx context.Context, diskPath string) (string, error) {
 	inputBuffer := KmFmtCreateFormatInputBuffer(diskPath)
 	outputBuffer := KmFmtCreateFormatOutputBuffer()
 
-	utf16DriverPath, _ := windows.UTF16PtrFromString(KERNEL_FORMAT_VOLUME_WIN32_DRIVER_PATH)
+	utf16DriverPath, _ := windows.UTF16PtrFromString(kernelFormatVolumeWin32DriverPath)
 	deviceHandle, err := windows.CreateFile(utf16DriverPath,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 		0,
@@ -264,7 +264,7 @@ func InvokeFsFormatter(ctx context.Context, diskPath string) (string, error) {
 	var bytesReturned uint32
 	if err := windows.DeviceIoControl(
 		deviceHandle,
-		_IOCTL_KERNEL_FORMAT_VOLUME_FORMAT,
+		IoctlKernelFormatVolumeFormat,
 		(*byte)(unsafe.Pointer(inputBuffer)),
 		uint32(inputBuffer.Size),
 		(*byte)(unsafe.Pointer(outputBuffer)),

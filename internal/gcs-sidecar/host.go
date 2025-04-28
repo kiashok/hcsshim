@@ -8,28 +8,21 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
 	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
 )
 
 type Host struct {
-	containersMutex sync.Mutex
-	containers      map[string]cow.Container
-
 	// state required for the security policy enforcement
 	policyMutex               sync.Mutex
 	securityPolicyEnforcer    securitypolicy.SecurityPolicyEnforcer
 	securityPolicyEnforcerSet bool
-	uvmReferenceInfo          string
 }
 
 type SecurityPoliyEnforcer struct {
 	// State required for the security policy enforcement
-	policyMutex               sync.Mutex
 	securityPolicyEnforcer    securitypolicy.SecurityPolicyEnforcer
 	securityPolicyEnforcerSet bool
-	uvmReferenceInfo          string
 }
 
 func NewHost(initialEnforcer securitypolicy.SecurityPolicyEnforcer) *Host {
@@ -39,6 +32,7 @@ func NewHost(initialEnforcer securitypolicy.SecurityPolicyEnforcer) *Host {
 	}
 }
 
+// nolint:unused
 func (h *Host) isSecurityPolicyEnforcerInitialized() bool {
 	return h.securityPolicyEnforcer != nil
 }
@@ -65,7 +59,7 @@ func (h *Host) SetWCOWConfidentialUVMOptions(securityPolicyRequest *guestresourc
 		maxErrorMessageLength,
 	)
 	if err != nil {
-		return fmt.Errorf("error creating security policy enforcer: %v", err)
+		return fmt.Errorf("error creating security policy enforcer: %w", err)
 	}
 
 	h.securityPolicyEnforcer = p

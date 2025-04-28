@@ -34,7 +34,7 @@ type Bridge struct {
 	mu        sync.Mutex
 	hostState *Host
 	// List of handlers for handling different rpc message requests.
-	rpcHandlerList map[prot.RpcProc]HandlerFunc
+	rpcHandlerList map[prot.RPCProc]HandlerFunc
 
 	// hcsshim and inbox GCS connections respectively.
 	shimConn     io.ReadWriteCloser
@@ -77,7 +77,7 @@ type request struct {
 func NewBridge(shimConn io.ReadWriteCloser, inboxGCSConn io.ReadWriteCloser, initialEnforcer securitypolicy.SecurityPolicyEnforcer) *Bridge {
 	hostState := NewHost(initialEnforcer)
 	return &Bridge{
-		rpcHandlerList: make(map[prot.RpcProc]HandlerFunc),
+		rpcHandlerList: make(map[prot.RPCProc]HandlerFunc),
 		hostState:      hostState,
 		shimConn:       shimConn,
 		inboxGCSConn:   inboxGCSConn,
@@ -115,7 +115,7 @@ func (b *Bridge) ServeMsg(r *request) error {
 	var handler HandlerFunc
 	var ok bool
 	messageType := r.header.Type
-	rpcProcID := prot.RpcProc(prot.MsgType(messageType) &^ prot.MsgTypeMask)
+	rpcProcID := prot.RPCProc(prot.MsgType(messageType) &^ prot.MsgTypeMask)
 	if handler, ok = b.rpcHandlerList[rpcProcID]; !ok {
 		return UnknownMessage(r)
 	}
@@ -124,7 +124,7 @@ func (b *Bridge) ServeMsg(r *request) error {
 }
 
 // Handle registers the handler for the given message id and protocol version.
-func (b *Bridge) Handle(rpcProcID prot.RpcProc, handlerFunc HandlerFunc) {
+func (b *Bridge) Handle(rpcProcID prot.RPCProc, handlerFunc HandlerFunc) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -141,7 +141,7 @@ func (b *Bridge) Handle(rpcProcID prot.RpcProc, handlerFunc HandlerFunc) {
 	b.rpcHandlerList[rpcProcID] = handlerFunc
 }
 
-func (b *Bridge) HandleFunc(rpcProcID prot.RpcProc, handler func(*request) error) {
+func (b *Bridge) HandleFunc(rpcProcID prot.RPCProc, handler func(*request) error) {
 	if handler == nil {
 		panic("bridge: nil handler func")
 	}
@@ -152,21 +152,21 @@ func (b *Bridge) HandleFunc(rpcProcID prot.RpcProc, handler func(*request) error
 // AssignHandlers creates and assigns appropriate event handlers
 // for the different bridge message types.
 func (b *Bridge) AssignHandlers() {
-	b.HandleFunc(prot.RpcCreate, b.createContainer)
-	b.HandleFunc(prot.RpcStart, b.startContainer)
-	b.HandleFunc(prot.RpcShutdownGraceful, b.shutdownGraceful)
-	b.HandleFunc(prot.RpcShutdownForced, b.shutdownForced)
-	b.HandleFunc(prot.RpcExecuteProcess, b.executeProcess)
-	b.HandleFunc(prot.RpcWaitForProcess, b.waitForProcess)
-	b.HandleFunc(prot.RpcSignalProcess, b.signalProcess)
-	b.HandleFunc(prot.RpcResizeConsole, b.resizeConsole)
-	b.HandleFunc(prot.RpcGetProperties, b.getProperties)
-	b.HandleFunc(prot.RpcModifySettings, b.modifySettings)
-	b.HandleFunc(prot.RpcNegotiateProtocol, b.negotiateProtocol)
-	b.HandleFunc(prot.RpcDumpStacks, b.dumpStacks)
-	b.HandleFunc(prot.RpcDeleteContainerState, b.deleteContainerState)
-	b.HandleFunc(prot.RpcUpdateContainer, b.updateContainer)
-	b.HandleFunc(prot.RpcLifecycleNotification, b.lifecycleNotification)
+	b.HandleFunc(prot.RPCCreate, b.createContainer)
+	b.HandleFunc(prot.RPCStart, b.startContainer)
+	b.HandleFunc(prot.RPCShutdownGraceful, b.shutdownGraceful)
+	b.HandleFunc(prot.RPCShutdownForced, b.shutdownForced)
+	b.HandleFunc(prot.RPCExecuteProcess, b.executeProcess)
+	b.HandleFunc(prot.RPCWaitForProcess, b.waitForProcess)
+	b.HandleFunc(prot.RPCSignalProcess, b.signalProcess)
+	b.HandleFunc(prot.RPCResizeConsole, b.resizeConsole)
+	b.HandleFunc(prot.RPCGetProperties, b.getProperties)
+	b.HandleFunc(prot.RPCModifySettings, b.modifySettings)
+	b.HandleFunc(prot.RPCNegotiateProtocol, b.negotiateProtocol)
+	b.HandleFunc(prot.RPCDumpStacks, b.dumpStacks)
+	b.HandleFunc(prot.RPCDeleteContainerState, b.deleteContainerState)
+	b.HandleFunc(prot.RPCUpdateContainer, b.updateContainer)
+	b.HandleFunc(prot.RPCLifecycleNotification, b.lifecycleNotification)
 }
 
 // readMessage reads the message from io.Reader
@@ -187,14 +187,14 @@ func readMessage(r io.Reader) (messageHeader, []byte, error) {
 	n := header.Size
 	if n < prot.HdrSize || n > prot.MaxMsgSize {
 		logrus.Errorf("invalid message size %d", n)
-		return messageHeader{}, nil, fmt.Errorf("invalid message size %d", n)
+		return messageHeader{}, nil, fmt.Errorf("invalid message size %d: %w", n, err)
 	}
 
 	n -= prot.HdrSize
 	msg := make([]byte, n)
 	_, err = io.ReadFull(r, msg)
 	if err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			err = io.ErrUnexpectedEOF
 		}
 		return messageHeader{}, nil, err
@@ -213,8 +213,7 @@ func (b *Bridge) forwardRequestToGcs(req *request) {
 }
 
 // Sends response to the hcsshim channel
-func (b *Bridge) sendResponseToShim(ctx context.Context, rpcProcType prot.RpcProc, id sequenceID, response interface{}) error {
-	// TODO (kiashok):
+func (b *Bridge) sendResponseToShim(ctx context.Context, rpcProcType prot.RPCProc, id sequenceID, response interface{}) error {
 	respType := prot.MsgTypeResponse | prot.MsgType(rpcProcType)
 	msgb, err := json.Marshal(response)
 	if err != nil {
@@ -296,7 +295,7 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 		for {
 			header, msg, err := readMessage(br)
 			if err != nil {
-				if err == io.EOF || isLocalDisconnectError(err) {
+				if errors.Is(err, io.EOF) || isLocalDisconnectError(err) {
 					return
 				}
 				recverr = errors.Wrap(err, "bridge read from shim connection failed")
@@ -336,7 +335,8 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 						ActivityID:   req.activityID,
 					}
 					setErrorForResponseBase(resp, err, "gcs-sidecar" /* moduleName */)
-					b.sendResponseToShim(req.ctx, prot.RpcProc(prot.MsgTypeResponse), req.header.ID, resp)
+					err = b.sendResponseToShim(req.ctx, prot.RPCProc(prot.MsgTypeResponse), req.header.ID, resp)
+					log.G(req.ctx).WithError(err).Errorf("failed to send response to shim")
 				}
 			}(req)
 		}
@@ -368,7 +368,7 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 		for {
 			header, message, err := readMessage(b.inboxGCSConn)
 			if err != nil {
-				if err == io.EOF || isLocalDisconnectError(err) {
+				if errors.Is(err, io.EOF) || isLocalDisconnectError(err) {
 					return
 				}
 				recverr = errors.Wrap(err, "bridge read from gcs failed")
@@ -409,10 +409,8 @@ func (b *Bridge) ListenAndServeShimRequests() error {
 		sidecarErrChan <- sendErr
 	}()
 
-	select {
-	case err := <-sidecarErrChan:
-		return err
-	}
+	err := <-sidecarErrChan
+	return err
 }
 
 // Prepare response message

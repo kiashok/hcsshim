@@ -18,10 +18,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-func newInvalidRequestTypeError(rt guestrequest.RequestType) error {
-	return errors.Errorf("the RequestType %q is not supported", rt)
-}
-
 func unmarshalContainerModifySettings(req *request) (_ *prot.ContainerModifySettings, err error) {
 	ctx, span := oc.StartSpan(req.ctx, "sidecar::unmarshalContainerModifySettings")
 	defer span.End()
