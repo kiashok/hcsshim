@@ -253,3 +253,7 @@ type WCOWConfidentialOptions struct {
 	WCOWSecurityPolicyEnforcer string
 	NoSecurityHardware         bool
 }
+
+type WCOWSecurityPolicyFragment struct {
+	Fragment string `json:"Fragment,omitempty"`
+}

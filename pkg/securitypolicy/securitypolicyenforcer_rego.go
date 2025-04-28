@@ -54,6 +54,8 @@ type regoEnforcer struct {
 	stdio map[string]bool
 	// Maximum error message length
 	maxErrorMessageLength int
+	// OS type
+	osType string
 }
 
 var _ SecurityPolicyEnforcer = (*regoEnforcer)(nil)
@@ -104,6 +106,7 @@ func createRegoEnforcer(base64EncodedPolicy string,
 	defaultMounts []oci.Mount,
 	privilegedMounts []oci.Mount,
 	maxErrorMessageLength int,
+	osType string,
 ) (SecurityPolicyEnforcer, error) {
 	// base64 decode the incoming policy string
 	// It will either be (legacy) JSON or Rego.
@@ -118,7 +121,7 @@ func createRegoEnforcer(base64EncodedPolicy string,
 	err = json.Unmarshal(rawPolicy, securityPolicy)
 	if err == nil {
 		if securityPolicy.AllowAll {
-			return createOpenDoorEnforcer(base64EncodedPolicy, defaultMounts, privilegedMounts, maxErrorMessageLength)
+			return createOpenDoorEnforcer(base64EncodedPolicy, defaultMounts, privilegedMounts, maxErrorMessageLength, osType)
 		}
 
 		containers := make([]*Container, securityPolicy.Containers.Length)
@@ -160,7 +163,7 @@ func createRegoEnforcer(base64EncodedPolicy string,
 		code = string(rawPolicy)
 	}
 
-	regoPolicy, err := newRegoPolicy(code, defaultMounts, privilegedMounts)
+	regoPolicy, err := newRegoPolicy(code, defaultMounts, privilegedMounts, osType)
 	if err != nil {
 		return nil, fmt.Errorf("error creating Rego policy: %w", err)
 	}
@@ -173,9 +176,10 @@ func (policy *regoEnforcer) enableLogging(path string, logLevel rpi.LogLevel) {
 	policy.rego.EnableLogging(path, logLevel)
 }
 
-func newRegoPolicy(code string, defaultMounts []oci.Mount, privilegedMounts []oci.Mount) (policy *regoEnforcer, err error) {
+func newRegoPolicy(code string, defaultMounts []oci.Mount, privilegedMounts []oci.Mount, osType string) (policy *regoEnforcer, err error) {
 	policy = new(regoEnforcer)
 
+	policy.osType = osType
 	policy.defaultMounts = make([]oci.Mount, len(defaultMounts))
 	copy(policy.defaultMounts, defaultMounts)
 
@@ -192,6 +196,7 @@ func newRegoPolicy(code string, defaultMounts []oci.Mount, privilegedMounts []oc
 	}
 
 	policy.rego, err = rpi.NewRegoPolicyInterpreter(code, data)
+	policy.rego.UpdateOSType(osType)
 	if err != nil {
 		return nil, err
 	}
@@ -706,25 +711,70 @@ func (policy *regoEnforcer) EnforceCreateContainerPolicy(
 	capsToKeep *oci.LinuxCapabilities,
 	stdioAccessAllowed bool,
 	err error) {
-	if capabilities == nil {
+	opts := &CreateContainerOptions{
+		SandboxID:            sandboxID,
+		Privileged:           &privileged,
+		NoNewPrivileges:      &noNewPrivileges,
+		Groups:               groups,
+		Umask:                umask,
+		Capabilities:         capabilities,
+		SeccompProfileSHA256: seccompProfileSHA256,
+	}
+	return policy.EnforceCreateContainerPolicyV2(ctx, containerID, argList, envList, workingDir, mounts, user, opts)
+}
+
+func (policy *regoEnforcer) EnforceCreateContainerPolicyV2(
+	ctx context.Context,
+	containerID string,
+	argList []string,
+	envList []string,
+	workingDir string,
+	mounts []oci.Mount,
+	user IDName,
+	opts *CreateContainerOptions,
+) (envToKeep EnvList,
+	capsToKeep *oci.LinuxCapabilities,
+	stdioAccessAllowed bool,
+	err error) {
+
+	if policy.osType == "linux" && opts.Capabilities == nil {
 		return nil, nil, false, errors.New(capabilitiesNilError)
 	}
 
-	input := inputData{
-		"containerID":          containerID,
-		"argList":              argList,
-		"envList":              envList,
-		"workingDir":           workingDir,
-		"sandboxDir":           SandboxMountsDir(sandboxID),
-		"hugePagesDir":         HugePagesMountsDir(sandboxID),
-		"mounts":               appendMountData([]interface{}{}, mounts),
-		"privileged":           privileged,
-		"noNewPrivileges":      noNewPrivileges,
-		"user":                 user.toInput(),
-		"groups":               groupsToInputs(groups),
-		"umask":                umask,
-		"capabilities":         mapifyCapabilities(capabilities),
-		"seccompProfileSHA256": seccompProfileSHA256,
+	var input inputData
+
+	switch policy.osType {
+	case "linux":
+		input = inputData{
+			"containerID":          containerID,
+			"argList":              argList,
+			"envList":              envList,
+			"workingDir":           workingDir,
+			"sandboxDir":           SandboxMountsDir(opts.SandboxID),
+			"hugePagesDir":         HugePagesMountsDir(opts.SandboxID),
+			"mounts":               appendMountData([]interface{}{}, mounts),
+			"privileged":           opts.Privileged,
+			"noNewPrivileges":      opts.NoNewPrivileges,
+			"user":                 user.toInput(),
+			"groups":               groupsToInputs(opts.Groups),
+			"umask":                opts.Umask,
+			"capabilities":         mapifyCapabilities(opts.Capabilities),
+			"seccompProfileSHA256": opts.SeccompProfileSHA256,
+		}
+	case "windows":
+		if envList == nil {
+			envList = []string{}
+		}
+		input = inputData{
+			"containerID": containerID,
+			"argList":     argList,
+			"envList":     envList,
+			"workingDir":  workingDir,
+			"privileged":  true,
+			"user":        user.Name,
+		}
+	default:
+		return nil, nil, false, errors.Errorf("unsupported OS value in options: %q", policy.osType)
 	}
 
 	results, err := policy.enforce(ctx, "create_container", input)
@@ -737,9 +787,11 @@ func (policy *regoEnforcer) EnforceCreateContainerPolicy(
 		return nil, nil, false, err
 	}
 
-	capsToKeep, err = getCapsToKeep(capabilities, results)
-	if err != nil {
-		return nil, nil, false, err
+	if policy.osType == "linux" {
+		capsToKeep, err = getCapsToKeep(opts.Capabilities, results)
+		if err != nil {
+			return nil, nil, false, err
+		}
 	}
 
 	stdioAccessAllowed, err = results.Bool("allow_stdio_access")
@@ -802,20 +854,57 @@ func (policy *regoEnforcer) EnforceExecInContainerPolicy(
 	capsToKeep *oci.LinuxCapabilities,
 	stdioAccessAllowed bool,
 	err error) {
-	if capabilities == nil {
+	opts := &ExecOptions{
+		User:            &user,
+		Groups:          groups,
+		Umask:           umask,
+		Capabilities:    capabilities,
+		NoNewPrivileges: &noNewPrivileges,
+	}
+	return policy.EnforceExecInContainerPolicyV2(ctx, containerID, argList, envList, workingDir, opts)
+}
+
+func (policy *regoEnforcer) EnforceExecInContainerPolicyV2(
+	ctx context.Context,
+	containerID string,
+	argList []string,
+	envList []string,
+	workingDir string,
+	opts *ExecOptions,
+) (envToKeep EnvList,
+	capsToKeep *oci.LinuxCapabilities,
+	stdioAccessAllowed bool,
+	err error) {
+
+	if policy.osType == "linux" && opts.Capabilities == nil {
 		return nil, nil, false, errors.New(capabilitiesNilError)
 	}
 
-	input := inputData{
-		"containerID":     containerID,
-		"argList":         argList,
-		"envList":         envList,
-		"workingDir":      workingDir,
-		"noNewPrivileges": noNewPrivileges,
-		"user":            user.toInput(),
-		"groups":          groupsToInputs(groups),
-		"umask":           umask,
-		"capabilities":    mapifyCapabilities(capabilities),
+	var input inputData
+
+	switch policy.osType {
+	case "linux":
+		input = inputData{
+			"containerID":     containerID,
+			"argList":         argList,
+			"envList":         envList,
+			"workingDir":      workingDir,
+			"noNewPrivileges": opts.NoNewPrivileges,
+			"user":            opts.User.toInput(),
+			"groups":          groupsToInputs(opts.Groups),
+			"umask":           opts.Umask,
+			"capabilities":    mapifyCapabilities(opts.Capabilities),
+		}
+	case "windows":
+		input = inputData{
+			"containerID": containerID,
+			"argList":     argList,
+			"envList":     envList,
+			"workingDir":  workingDir,
+			"user":        opts.User.Name,
+		}
+	default:
+		return nil, nil, false, errors.Errorf("unsupported OS value in options: %q", policy.osType)
 	}
 
 	results, err := policy.enforce(ctx, "exec_in_container", input)
@@ -828,11 +917,12 @@ func (policy *regoEnforcer) EnforceExecInContainerPolicy(
 		return nil, nil, false, err
 	}
 
-	capsToKeep, err = getCapsToKeep(capabilities, results)
-	if err != nil {
-		return nil, nil, false, err
+	if policy.osType == "linux" {
+		capsToKeep, err = getCapsToKeep(opts.Capabilities, results)
+		if err != nil {
+			return nil, nil, false, err
+		}
 	}
-
 	return envToKeep, capsToKeep, policy.stdio[containerID], nil
 }
 
@@ -876,6 +966,32 @@ func (policy *regoEnforcer) EnforceSignalContainerProcessPolicy(ctx context.Cont
 		"signal":        signal,
 		"isInitProcess": isInitProcess,
 		"argList":       startupArgList,
+	}
+
+	_, err := policy.enforce(ctx, "signal_container_process", input)
+	return err
+}
+
+func (policy *regoEnforcer) EnforceSignalContainerProcessPolicyV2(ctx context.Context, containerID string, opts *SignalContainerOptions) error {
+	var input inputData
+
+	switch policy.osType {
+	case "linux":
+		input = inputData{
+			"containerID":   containerID,
+			"signal":        opts.LinuxSignal,
+			"isInitProcess": opts.IsInitProcess,
+			"argList":       opts.LinuxStartupArgs,
+		}
+	case "windows":
+		input = inputData{
+			"containerID":   containerID,
+			"signal":        opts.WindowsSignal,
+			"isInitProcess": opts.IsInitProcess,
+			"cmdLine":       opts.WindowsCommand,
+		}
+	default:
+		return errors.Errorf("unsupported OS value in options: %q", policy.osType)
 	}
 
 	_, err := policy.enforce(ctx, "signal_container_process", input)
