@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -13,14 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
-	cgroups "github.com/containerd/cgroups/v3/cgroup1"
-	cgroupstats "github.com/containerd/cgroups/v3/cgroup1/stats"
-	oci "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	"go.opencensus.io/trace"
-
 	"github.com/Microsoft/hcsshim/internal/guest/bridge"
 	"github.com/Microsoft/hcsshim/internal/guest/kmsg"
 	"github.com/Microsoft/hcsshim/internal/guest/runtime/hcsv2"
@@ -28,9 +21,17 @@ import (
 	"github.com/Microsoft/hcsshim/internal/guest/transport"
 	"github.com/Microsoft/hcsshim/internal/guestpath"
 	"github.com/Microsoft/hcsshim/internal/log"
-	"github.com/Microsoft/hcsshim/internal/oc"
+	"github.com/Microsoft/hcsshim/internal/ot"
 	"github.com/Microsoft/hcsshim/internal/version"
 	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
+	"github.com/cenkalti/backoff/v4"
+	cgroups "github.com/containerd/cgroups/v3/cgroup1"
+	cgroupstats "github.com/containerd/cgroups/v3/cgroup1/stats"
+	oci "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func memoryLogFormat(metrics *cgroupstats.Metrics) logrus.Fields {
@@ -167,6 +168,16 @@ func startTimeSyncService() error {
 	return nil
 }
 
+func initOtelTracer() (func(context.Context) error, error) {
+	exporter := &ot.LogrusExporter{}
+	traceProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+	otel.SetTracerProvider(traceProvider)
+	return traceProvider.Shutdown, nil
+}
+
 func main() {
 	startTime := time.Now()
 	logLevel := flag.String("loglevel",
@@ -212,8 +223,11 @@ func main() {
 
 	// If v4 enable opencensus
 	if *v4 {
-		trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
-		trace.RegisterExporter(&oc.LogrusExporter{})
+		// Register our Otel logrus exporter
+		_, err := initOtelTracer()
+		if err != nil {
+			logrus.Fatalf("failed to initialize ot tracer: %v", err)
+		}
 	}
 
 	logrus.AddHook(log.NewHook())

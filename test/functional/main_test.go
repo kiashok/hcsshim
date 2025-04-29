@@ -21,17 +21,16 @@ import (
 
 	"github.com/Microsoft/go-winio/pkg/etw"
 	"github.com/Microsoft/go-winio/pkg/etwlogrus"
-	"github.com/containerd/containerd/namespaces"
-	"github.com/sirupsen/logrus"
-	"github.com/urfave/cli/v2"
-	"go.opencensus.io/trace"
-
 	"github.com/Microsoft/hcsshim/internal/layers"
 	"github.com/Microsoft/hcsshim/internal/log"
-	"github.com/Microsoft/hcsshim/internal/oc"
+	"github.com/Microsoft/hcsshim/internal/ot"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/Microsoft/hcsshim/osversion"
+	"github.com/containerd/containerd/namespaces"
+	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli/v2"
+	"go.opentelemetry.io/otel"
 
 	testlayers "github.com/Microsoft/hcsshim/test/internal/layers"
 	"github.com/Microsoft/hcsshim/test/internal/util"
@@ -162,8 +161,8 @@ func runTests(m *testing.M) error {
 		return fmt.Errorf("tests must be run in an elevated context")
 	}
 
-	trace.ApplyConfig(trace.Config{DefaultSampler: oc.DefaultSampler})
-	trace.RegisterExporter(&oc.LogrusExporter{})
+	trace.ApplyConfig(trace.Config{DefaultSampler: ot.DefaultSampler})
+	trace.RegisterExporter(&otel.LogrusExporter{})
 
 	// default is stderr, but test2json does not consume stderr, so logs would be out of sync
 	// and powershell considers output on stderr as an error when execing

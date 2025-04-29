@@ -11,18 +11,6 @@ import (
 	"sync"
 	"time"
 
-	eventstypes "github.com/containerd/containerd/api/events"
-	"github.com/containerd/containerd/api/runtime/task/v2"
-	"github.com/containerd/containerd/api/types"
-	"github.com/containerd/containerd/runtime"
-	"github.com/containerd/errdefs"
-	"github.com/containerd/typeurl/v2"
-	"github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	"go.opencensus.io/trace"
-	"google.golang.org/protobuf/types/known/timestamppb"
-
 	"github.com/Microsoft/go-winio/pkg/fs"
 	runhcsopts "github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
 	"github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/stats"
@@ -38,8 +26,8 @@ import (
 	"github.com/Microsoft/hcsshim/internal/layers"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/memory"
-	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/oci"
+	"github.com/Microsoft/hcsshim/internal/ot"
 	"github.com/Microsoft/hcsshim/internal/processorinfo"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestrequest"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
@@ -49,6 +37,17 @@ import (
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/Microsoft/hcsshim/pkg/annotations"
 	"github.com/Microsoft/hcsshim/pkg/ctrdtaskapi"
+	eventstypes "github.com/containerd/containerd/api/events"
+	"github.com/containerd/containerd/api/runtime/task/v2"
+	"github.com/containerd/containerd/api/types"
+	"github.com/containerd/containerd/runtime"
+	"github.com/containerd/errdefs"
+	"github.com/containerd/typeurl/v2"
+	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func newHcsStandaloneTask(ctx context.Context, events publisher, req *task.CreateTaskRequest, s *specs.Spec) (shimTask, error) {
@@ -605,9 +604,9 @@ func (ht *hcsTask) Wait() *task.StateResponse {
 }
 
 func (ht *hcsTask) waitInitExit() {
-	ctx, span := oc.StartSpan(context.Background(), "hcsTask::waitInitExit")
+	ctx, span := ot.StartSpan(context.Background(), "hcsTask::waitInitExit")
 	defer span.End()
-	span.AddAttributes(trace.StringAttribute("tid", ht.id))
+	span.SetAttributes(attribute.String("tid", ht.id))
 
 	// Wait for it to exit on its own
 	ht.init.Wait()
@@ -624,9 +623,9 @@ func (ht *hcsTask) waitInitExit() {
 // Note: For Windows process isolated containers there is no host virtual
 // machine so this should not be called.
 func (ht *hcsTask) waitForHostExit() {
-	ctx, span := oc.StartSpan(context.Background(), "hcsTask::waitForHostExit")
+	ctx, span := ot.StartSpan(context.Background(), "hcsTask::waitForHostExit")
 	defer span.End()
-	span.AddAttributes(trace.StringAttribute("tid", ht.id))
+	span.SetAttributes(attribute.String("tid", ht.id))
 
 	err := ht.host.WaitCtx(ctx)
 	if err != nil {
