@@ -13,7 +13,7 @@ import (
 
 	cgroups "github.com/containerd/cgroups/v3/cgroup1"
 	"github.com/sirupsen/logrus"
-	"go.opencensus.io/trace"
+	"go.opentelemetry.io/otel"
 	"golang.org/x/sys/unix"
 
 	"github.com/Microsoft/hcsshim/internal/guest/runtime"
@@ -21,7 +21,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/guest/runtime/runc"
 	"github.com/Microsoft/hcsshim/internal/guest/transport"
 	"github.com/Microsoft/hcsshim/internal/guestpath"
-	"github.com/Microsoft/hcsshim/internal/oc"
+	"github.com/Microsoft/hcsshim/internal/ot"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestresource"
 	"github.com/Microsoft/hcsshim/pkg/securitypolicy"
 
@@ -110,8 +110,8 @@ func TestMain(m *testing.M) {
 func setup() (err error) {
 	_ = os.MkdirAll(guestpath.LCOWRootPrefixInUVM, 0755)
 
-	trace.ApplyConfig(trace.Config{DefaultSampler: oc.DefaultSampler})
-	trace.RegisterExporter(&oc.LogrusExporter{})
+	trace.ApplyConfig(trace.Config{DefaultSampler: ot.DefaultSampler})
+	trace.RegisterExporter(&otel.LogrusExporter{})
 
 	logrus.SetLevel(flagLogLevel.Level)
 	// test2json does not consume stderr

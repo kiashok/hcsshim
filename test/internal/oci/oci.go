@@ -11,9 +11,7 @@ import (
 	criconstants "github.com/containerd/containerd/pkg/cri/constants"
 	criopts "github.com/containerd/containerd/pkg/cri/opts"
 	"github.com/opencontainers/runtime-spec/specs-go"
-
 	"github.com/Microsoft/hcsshim/pkg/annotations"
-
 	"github.com/Microsoft/hcsshim/test/pkg/images"
 )
 

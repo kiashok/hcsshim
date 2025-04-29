@@ -276,26 +276,26 @@ type GcsGuestCapabilities struct {
 	DeleteContainerStateSupported bool `json:",omitempty"`
 }
 
-// ocspancontext is the internal JSON representation of the OpenCensus
+// otelspancontext is the internal JSON representation of the OpenTelemetry
 // `trace.SpanContext` for fowarding to a GCS that supports it.
-type ocspancontext struct {
-	// TraceID is the `hex` encoded string of the OpenCensus
+type otelspancontext struct {
+	// TraceID is the `hex` encoded string of the OpenTelemetry
 	// `SpanContext.TraceID` to propagate to the guest.
 	TraceID string `json:",omitempty"`
-	// SpanID is the `hex` encoded string of the OpenCensus `SpanContext.SpanID`
+	// SpanID is the `hex` encoded string of the OpenTelemetry `SpanContext.SpanID`
 	// to propagate to the guest.
 	SpanID string `json:",omitempty"`
 
-	// TraceOptions is the OpenCensus `SpanContext.TraceOptions` passed through
+	// TraceFlags is the OpenTelemetry `SpanContext.TraceFlags` passed through
 	// to propagate to the guest.
-	TraceOptions uint32 `json:",omitempty"`
+	TraceFlags byte `json:",omitempty"`
 
-	// Tracestate is the `base64` encoded string of marshaling the OpenCensus
-	// `SpanContext.TraceState.Entries()` to JSON.
+	// TraceState is the `base64` encoded string of marshaling the OpenTelemetry
+	// `SpanContext.TraceState.list` to JSON.
 	//
-	// If `SpanContext.Tracestate == nil ||
-	// len(SpanContext.Tracestate.Entries()) == 0` this will be `""`.
-	Tracestate string `json:",omitempty"`
+	// If `SpanContext.TraceState == nil ||
+	// len(SpanContext.TraceState.list) == 0` this will be `""`.
+	TraceState string `json:",omitempty"`
 }
 
 // MessageBase is the base type embedded in all messages sent from the HCS to
@@ -304,13 +304,13 @@ type MessageBase struct {
 	ContainerID string `json:"ContainerId"`
 	ActivityID  string `json:"ActivityId"`
 
-	// OpenCensusSpanContext is the encoded OpenCensus `trace.SpanContext` if
+	// OpenTelemetrySpanContext is the encoded OpenTelemetry `trace.SpanContext` if
 	// set when making the request.
 	//
 	// NOTE: This is not a part of the protocol but because its a JSON protocol
 	// adding fields is a non-breaking change. If the guest supports it this is
 	// just additive context.
-	OpenCensusSpanContext *ocspancontext `json:"ocsc,omitempty"`
+	OpenTelemetrySpanContext *otelspancontext `json:"otsc,omitempty"`
 }
 
 // NegotiateProtocol is the message from the HCS used to determine the protocol

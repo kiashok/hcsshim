@@ -9,14 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	oci "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
-	"go.opencensus.io/trace"
-
 	"github.com/Microsoft/hcsshim/internal/guest/network"
 	specGuest "github.com/Microsoft/hcsshim/internal/guest/spec"
 	"github.com/Microsoft/hcsshim/internal/guestpath"
-	"github.com/Microsoft/hcsshim/internal/oc"
+	"github.com/Microsoft/hcsshim/internal/ot"
+	oci "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/pkg/errors"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func getStandaloneRootDir(id string) string {
@@ -36,10 +35,10 @@ func getStandaloneResolvPath(id string) string {
 }
 
 func setupStandaloneContainerSpec(ctx context.Context, id string, spec *oci.Spec) (err error) {
-	ctx, span := oc.StartSpan(ctx, "hcsv2::setupStandaloneContainerSpec")
+	ctx, span := ot.StartSpan(ctx, "hcsv2::setupStandaloneContainerSpec")
 	defer span.End()
-	defer func() { oc.SetSpanStatus(span, err) }()
-	span.AddAttributes(trace.StringAttribute("cid", id))
+	defer func() { ot.SetSpanStatus(span, err) }()
+	span.SetAttributes(attribute.String("cid", id))
 
 	// Generate the standalone root dir
 	rootDir := getStandaloneRootDir(id)
