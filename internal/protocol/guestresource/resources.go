@@ -110,6 +110,7 @@ type LCOWMappedVirtualDisk struct {
 type BlockCIMDevice struct {
 	CimName string
 	Lun     int32
+	Digest  string
 }
 
 type WCOWBlockCIMMounts struct {

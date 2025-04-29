@@ -376,6 +376,7 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 					CimName:   blockCimDevice.CimName,
 				}
 				layerCIMs = append(layerCIMs, &layerCim)
+				log.G(ctx).Debugf("block CIM layer digest %s, path: %s\n", blockCimDevice.Digest, physicalDevPath)
 			}
 			if len(layerCIMs) > 1 {
 				// Get the topmost merge CIM and invoke the MountMergedBlockCIMs

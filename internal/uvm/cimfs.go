@@ -5,6 +5,8 @@ package uvm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
@@ -60,15 +62,23 @@ func (uvm *UtilityVM) MountBlockCIMs(ctx context.Context, mergedCIM *cimfs.Block
 		if err != nil {
 			return nil, fmt.Errorf("failed to attach block CIM %s: %w", bcim.BlockPath, err)
 		}
+
+		hasher := sha256.New()
+		hasher.Write([]byte(bcim.BlockPath))
+		layerDigest := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+
 		log.G(ctx).WithFields(logrus.Fields{
 			"block path":      bcim.BlockPath,
 			"cim name":        bcim.CimName,
+			"layer digest":    layerDigest,
 			"scsi controller": sm.Controller(),
 			"scsi LUN":        sm.LUN(),
 		}).Debugf("attached block CIM VHD")
+
 		settings.BlockCIMs = append(settings.BlockCIMs, guestresource.BlockCIMDevice{
 			CimName: bcim.CimName,
 			Lun:     int32(sm.LUN()),
+			Digest:  layerDigest,
 		})
 		umb.scsiMounts = append(umb.scsiMounts, sm)
 		defer func() {
