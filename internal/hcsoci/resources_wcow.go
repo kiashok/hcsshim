@@ -35,7 +35,7 @@ func allocateWindowsResources(ctx context.Context, coi *createOptionsInternal, r
 	}
 
 	if coi.Spec.Root.Path == "" && (coi.HostingSystem != nil || coi.Spec.Windows.HyperV == nil) {
-		log.G(ctx).Debug("hcsshim::allocateWindowsResources mounting storage")
+		log.G(ctx).Trace("hcsshim::allocateWindowsResources mounting storage")
 		mountedLayers, closer, err := layers.MountWCOWLayers(ctx, coi.actualID, coi.HostingSystem, coi.WCOWLayers)
 		if err != nil {
 			return errors.Wrap(err, "failed to mount container storage")
