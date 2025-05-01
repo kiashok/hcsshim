@@ -118,6 +118,7 @@ func SetDefaultConfidentialWCOWBootConfig(opts *OptionsWCOW) error {
 	opts.IsolationType = "GuestStateOnly"
 	opts.DisableSecureBoot = true
 	opts.ConsolePipe = "\\\\.\\pipe\\uvmpipe"
+	opts.NoSecurityHardware = true
 	return nil
 }
 
