@@ -31,6 +31,7 @@ func modifyMappedVirtualDisk(
 		// TODO: Modify and update this with verified Cims API
 		return securityPolicy.EnforceDeviceMountPolicy(ctx, mvd.ContainerPath, "hash")
 	case guestrequest.RequestTypeRemove:
+		log.G(ctx).Tracef("enforcing mount_device in mappedvirtualdisk")
 		// TODO: Modify and update this with verified Cims API
 		return securityPolicy.EnforceDeviceUnmountPolicy(ctx, mvd.ContainerPath)
 	default:
@@ -51,6 +52,7 @@ func modifyCombinedLayers(
 		for i, layer := range cl.Layers {
 			layerPaths[i] = layer.Path
 		}
+		//TODO: Remove this when there is verified Cimfs API
 		return securityPolicy.EnforceOverlayMountPolicy(ctx, containerID, layerPaths, cl.ContainerRootPath)
 	case guestrequest.RequestTypeRemove:
 		return securityPolicy.EnforceOverlayUnmountPolicy(ctx, cl.ContainerRootPath)

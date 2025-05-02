@@ -35,7 +35,7 @@ func (umb *UVMMountedBlockCIMs) Release(ctx context.Context) error {
 
 // mergedCIM can be nil,
 // sourceCIMs MUST be in the top to bottom order
-func (uvm *UtilityVM) MountBlockCIMs(ctx context.Context, mergedCIM *cimfs.BlockCIM, sourceCIMs []*cimfs.BlockCIM) (_ *UVMMountedBlockCIMs, err error) {
+func (uvm *UtilityVM) MountBlockCIMs(ctx context.Context, mergedCIM *cimfs.BlockCIM, sourceCIMs []*cimfs.BlockCIM, containerID string) (_ *UVMMountedBlockCIMs, err error) {
 	volumeGUID, err := guid.NewV4()
 	if err != nil {
 		return nil, fmt.Errorf("generated cim mount GUID: %w", err)
@@ -47,9 +47,10 @@ func (uvm *UtilityVM) MountBlockCIMs(ctx context.Context, mergedCIM *cimfs.Block
 	}
 
 	settings := &guestresource.WCOWBlockCIMMounts{
-		BlockCIMs:  []guestresource.BlockCIMDevice{},
-		VolumeGuid: volumeGUID,
-		MountFlags: cimfs.CimMountBlockDeviceCim,
+		BlockCIMs:   []guestresource.BlockCIMDevice{},
+		VolumeGuid:  volumeGUID,
+		MountFlags:  cimfs.CimMountBlockDeviceCim,
+		ContainerID: containerID,
 	}
 
 	umb := &UVMMountedBlockCIMs{

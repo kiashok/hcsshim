@@ -351,7 +351,7 @@ func mountHypervIsolatedBlockCIMLayers(ctx context.Context, l *wcowBlockCIMLayer
 		"parent layers": l.parentLayers,
 	}).Debug("mounting hyperv isolated block CIM layers")
 
-	mountedCIMs, err := vm.MountBlockCIMs(ctx, l.mergedLayer, l.parentLayers)
+	mountedCIMs, err := vm.MountBlockCIMs(ctx, l.mergedLayer, l.parentLayers, containerID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to mount block CIMs in UVM: %w", err)
 	}

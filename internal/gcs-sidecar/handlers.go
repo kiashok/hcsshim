@@ -334,7 +334,10 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 		case guestresource.ResourceTypeSecurityPolicy:
 			securityPolicyRequest := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWConfidentialOptions)
 			log.G(ctx).Tracef("WCOWConfidentialOptions: { %v}", securityPolicyRequest)
-			_ = b.hostState.SetWCOWConfidentialUVMOptions(req.ctx, securityPolicyRequest)
+			err := b.hostState.SetWCOWConfidentialUVMOptions(req.ctx, securityPolicyRequest)
+			if err != nil {
+				return errors.Wrap(err, "error creating enforcer")
+			}
 			/*
 				// ignore the returned err temporarily as it fails with "unknown policy rego" error
 					; err != nil {
@@ -346,7 +349,7 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 				Result:     0, // 0 means success
 				ActivityID: req.activityID,
 			}
-			err := b.sendResponseToShim(req.ctx, prot.RPCModifySettings, req.header.ID, resp)
+			err = b.sendResponseToShim(req.ctx, prot.RPCModifySettings, req.header.ID, resp)
 			if err != nil {
 				return fmt.Errorf("error sending response to hcsshim: %w", err)
 			}
@@ -355,12 +358,15 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 		case guestresource.ResourceTypeWCOWBlockCims:
 			// This is request to mount the merged cim at given volumeGUID
 			wcowBlockCimMounts := modifyGuestSettingsRequest.Settings.(*guestresource.WCOWBlockCIMMounts)
+			containerID := wcowBlockCimMounts.ContainerID
 			log.G(ctx).Tracef("WCOWBlockCIMMounts { %v}", wcowBlockCimMounts)
 
 			// The block device takes some time to show up. Wait for a few seconds.
 			time.Sleep(2 * time.Second)
 
 			var layerCIMs []*cimfs.BlockCIM
+			layerHashes := make([]string, len(wcowBlockCimMounts.BlockCIMs))
+			ctx := req.ctx
 			for _, blockCimDevice := range wcowBlockCimMounts.BlockCIMs {
 				// Get the scsi device path for the blockCim lun
 				devNumber, err := windevice.GetDeviceNumberFromControllerLUN(
@@ -376,8 +382,13 @@ func (b *Bridge) modifySettings(req *request) (err error) {
 					CimName:   blockCimDevice.CimName,
 				}
 				layerCIMs = append(layerCIMs, &layerCim)
-				log.G(ctx).Debugf("block CIM layer digest %s, path: %s\n", blockCimDevice.Digest, physicalDevPath)
 			}
+
+			err := b.hostState.securityPolicyEnforcer.EnforceVerifiedCIMsPolicy(req.ctx, containerID, layerHashes)
+			if err != nil {
+				return errors.Wrap(err, "CIM mount is denied by policy")
+			}
+
 			if len(layerCIMs) > 1 {
 				// Get the topmost merge CIM and invoke the MountMergedBlockCIMs
 				_, err := cimfs.MountMergedBlockCIMs(layerCIMs[0], layerCIMs[1:], wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGuid)

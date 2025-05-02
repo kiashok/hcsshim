@@ -47,8 +47,8 @@ func (h *Host) SetWCOWConfidentialUVMOptions(ctx context.Context, securityPolicy
 		return errors.New("security policy has already been set")
 	}
 
-	log.G(ctx).Tracef("NoSecurtyHardware annotation: %v", securityPolicyRequest.NoSecurityHardware)
 	if securityPolicyRequest.NoSecurityHardware || pspdriver.IsSNPEnabled(ctx) {
+		log.G(ctx).Tracef("Starting psp driver")
 		// Start the psp driver
 		if err := pspdriver.StartPSPDriver(ctx); err != nil {
 			// Failed to start psp driver, return prematurely

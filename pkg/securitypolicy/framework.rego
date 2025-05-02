@@ -57,6 +57,14 @@ layerPaths_ok(layers) {
     }
 }
 
+layerHashes_ok(layers) {
+    length := count(layers)
+    count(input.layerHashes) == length
+    every i, hash in input.layerHashes {
+        layers[(length - i) - 1] == hash
+    }
+}
+
 default overlay_exists := false
 
 overlay_exists {
@@ -93,6 +101,25 @@ candidate_containers := containers {
     ]
 
     containers := array.concat(policy_containers, fragment_containers)
+}
+
+default mount_cims := {"allowed": false}
+
+mount_cims := {"metadata": [addMatches], "allowed": true} {
+    not overlay_exists
+
+    containers := [container |
+        container := candidate_containers[_]
+        layerHashes_ok(container.layers)
+    ]
+
+    count(containers) > 0
+    addMatches := {
+        "name": "matches",
+        "action": "add",
+        "key": input.containerID,
+        "value": containers,
+    }
 }
 
 default mount_overlay := {"allowed": false}

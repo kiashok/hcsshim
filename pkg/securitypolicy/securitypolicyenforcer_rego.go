@@ -9,8 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -18,14 +16,8 @@ import (
 	"github.com/Microsoft/hcsshim/internal/guestpath"
 	"github.com/Microsoft/hcsshim/internal/log"
 	rpi "github.com/Microsoft/hcsshim/internal/regopolicyinterpreter"
-	"github.com/moby/sys/user"
 	oci "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
-
-	specGuest "github.com/Microsoft/hcsshim/internal/guest/spec"
-	"github.com/Microsoft/hcsshim/internal/guestpath"
-	"github.com/Microsoft/hcsshim/internal/log"
-	rpi "github.com/Microsoft/hcsshim/internal/regopolicyinterpreter"
 )
 
 const regoEnforcerName = "rego"
@@ -995,102 +987,17 @@ func (policy *regoEnforcer) EnforceScratchUnmountPolicy(ctx context.Context, scr
 	return nil
 }
 
-func getUser(passwdPath string, filter func(user.User) bool) (user.User, error) {
-	users, err := user.ParsePasswdFileFilter(passwdPath, filter)
-	if err != nil {
-		return user.User{}, err
+func (policy *regoEnforcer) EnforceVerifiedCIMsPolicy(ctx context.Context, containerID string, layerHashes []string) error {
+	log.G(ctx).Tracef("Enforcing verified cims in securitypolicy pkg %+v", layerHashes)
+	input := inputData{
+		"containerID": containerID,
+		"layerHashes": layerHashes,
 	}
-	if len(users) != 1 {
-		return user.User{}, errors.Errorf("expected exactly 1 user matched '%d'", len(users))
-	}
-	return users[0], nil
-}
 
-func getGroup(groupPath string, filter func(user.Group) bool) (user.Group, error) {
-	groups, err := user.ParseGroupFileFilter(groupPath, filter)
-	if err != nil {
-		return user.Group{}, err
-	}
-	if len(groups) != 1 {
-		return user.Group{}, errors.Errorf("expected exactly 1 group matched '%d'", len(groups))
-	}
-	return groups[0], nil
+	_, err := policy.enforce(ctx, "mount_cims", input)
+	return err
 }
 
 func (policy *regoEnforcer) GetUserInfo(containerID string, process *oci.Process) (IDName, []IDName, string, error) {
-	rootPath := filepath.Join(guestpath.LCOWRootPrefixInUVM, containerID, guestpath.RootfsPath)
-	passwdPath := filepath.Join(rootPath, "/etc/passwd")
-	groupPath := filepath.Join(rootPath, "/etc/group")
-
-	if process == nil {
-		return IDName{}, nil, "", errors.New("spec.Process is nil")
-	}
-
-	// this default value is used in the Linux kernel if no umask is specified
-	umask := "0022"
-	if process.User.Umask != nil {
-		umask = fmt.Sprintf("%04o", *process.User.Umask)
-	}
-
-	if process.User.Username != "" {
-		uid, gid, err := specGuest.ParseUserStr(rootPath, process.User.Username)
-		if err == nil {
-			userIDName := IDName{ID: strconv.FormatUint(uint64(uid), 10)}
-			groupIDName := IDName{ID: strconv.FormatUint(uint64(gid), 10)}
-			return userIDName, []IDName{groupIDName}, umask, nil
-		}
-		log.G(context.Background()).WithError(err).Warn("failed to parse user str, fallback to lookup")
-	}
-
-	// fallback UID/GID lookup
-	uid := process.User.UID
-	userIDName := IDName{ID: strconv.FormatUint(uint64(uid), 10), Name: ""}
-	if _, err := os.Stat(passwdPath); err == nil {
-		userInfo, err := getUser(passwdPath, func(user user.User) bool {
-			return uint32(user.Uid) == uid
-		})
-
-		if err != nil {
-			return userIDName, nil, "", err
-		}
-
-		userIDName.Name = userInfo.Name
-	}
-
-	gid := process.User.GID
-	groupIDName := IDName{ID: strconv.FormatUint(uint64(gid), 10), Name: ""}
-
-	checkGroup := true
-	if _, err := os.Stat(groupPath); err == nil {
-		groupInfo, err := getGroup(groupPath, func(group user.Group) bool {
-			return uint32(group.Gid) == gid
-		})
-
-		if err != nil {
-			return userIDName, nil, "", err
-		}
-		groupIDName.Name = groupInfo.Name
-	} else {
-		checkGroup = false
-	}
-
-	groupIDNames := []IDName{groupIDName}
-	additionalGIDs := process.User.AdditionalGids
-	if len(additionalGIDs) > 0 {
-		for _, gid := range additionalGIDs {
-			groupIDName = IDName{ID: strconv.FormatUint(uint64(gid), 10), Name: ""}
-			if checkGroup {
-				groupInfo, err := getGroup(groupPath, func(group user.Group) bool {
-					return uint32(group.Gid) == gid
-				})
-				if err != nil {
-					return userIDName, nil, "", err
-				}
-				groupIDName.Name = groupInfo.Name
-			}
-			groupIDNames = append(groupIDNames, groupIDName)
-		}
-	}
-
-	return userIDName, groupIDNames, umask, nil
+	return GetAllUserInfo(containerID, process)
 }
