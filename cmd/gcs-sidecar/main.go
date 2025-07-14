@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/hcsshim/internal/gcs/prot"
@@ -133,7 +134,9 @@ func main() {
 
 	flag.Parse()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
 	logFileHandle, err := os.OpenFile(*logFile, os.O_RDWR|os.O_CREATE|os.O_SYNC|os.O_TRUNC, 0666)
 	if err != nil {
 		fmt.Printf("error opening file: %v", err)

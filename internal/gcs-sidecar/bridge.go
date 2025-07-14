@@ -220,27 +220,6 @@ func (b *Bridge) forwardRequestToGcs(req *request) {
 	b.sendToGCSCh <- *req
 }
 
-// Sends response to the hcsshim channel
-func (b *Bridge) sendResponseToShim(ctx context.Context, rpcProcType prot.RPCProc, id sequenceID, response interface{}) error {
-	respType := prot.MsgTypeResponse | prot.MsgType(rpcProcType)
-	msgb, err := json.Marshal(response)
-	if err != nil {
-		return err
-	}
-	msgHeader := messageHeader{
-		Type: respType,
-		Size: uint32(len(msgb) + prot.HdrSize),
-		ID:   id,
-	}
-
-	b.sendToShimCh <- bridgeResponse{
-		ctx:      ctx,
-		header:   msgHeader,
-		response: msgb,
-	}
-	return nil
-}
-
 func getContextAndSpan(baseSpanCtx *prot.Ocspancontext) (context.Context, *trace.Span) {
 	var ctx context.Context
 	var span *trace.Span
@@ -280,148 +259,260 @@ func getContextAndSpan(baseSpanCtx *prot.Ocspancontext) (context.Context, *trace
 	return ctx, span
 }
 
+func sendWithContextCancel[T any](ctx context.Context, sendCh chan<- T, msg T) error {
+	select {
+	case sendCh <- msg:
+		// Sent successfully
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Sends response to the hcsshim channel
+func (b *Bridge) sendResponseToShim(ctx context.Context, rpcProcType prot.RPCProc, id sequenceID, response interface{}) error {
+	respType := prot.MsgTypeResponse | prot.MsgType(rpcProcType)
+	msgb, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	msgHeader := messageHeader{
+		Type: respType,
+		Size: uint32(len(msgb) + prot.HdrSize),
+		ID:   id,
+	}
+
+	resp := bridgeResponse{
+		ctx:      ctx,
+		header:   msgHeader,
+		response: msgb,
+	}
+
+	return sendWithContextCancel(ctx, b.sendToShimCh, resp)
+}
+
 // ListenAndServeShimRequests listens to messages on the hcsshim
 // and inbox GCS connections and schedules them for processing.
 // After processing, messages are forwarded to inbox GCS on success
 // and responses from inbox GCS or error messages are sent back
 // to hcsshim via bridge connection.
 func (b *Bridge) ListenAndServeShimRequests() error {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
 	shimRequestChan := make(chan request)
-	sidecarErrChan := make(chan error)
+	// goroutines share the error channel to send error responses
+	// back to hcsshim. Therefore use buffered error channel.
+	sidecarErrChan := make(chan error, 5)
 
-	defer b.inboxGCSConn.Close()
-	defer close(shimRequestChan)
-	defer close(sidecarErrChan)
-	defer b.shimConn.Close()
-	defer close(b.sendToShimCh)
-	defer close(b.sendToGCSCh)
-
-	// Listen to requests from hcsshim
+	// Goroutine 1: Listen to requests from hcsshim
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+		defer close(shimRequestChan)
+
 		var recverr error
 		br := bufio.NewReader(b.shimConn)
 		for {
-			header, msg, err := readMessage(br)
-			if err != nil {
-				if errors.Is(err, io.EOF) || isLocalDisconnectError(err) {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				header, msg, err := readMessage(br)
+				if err != nil {
+					if errors.Is(err, io.EOF) || isLocalDisconnectError(err) {
+						// hcsshim handles these errors explicitly. Therefore,
+						// returning the exact same error.
+						recverr = err
+					} else {
+						recverr = fmt.Errorf("bridge read from shim connection failed: %w", err)
+					}
+					logrus.Error(recverr)
+					_ = sendWithContextCancel(ctx, sidecarErrChan, recverr)
 					return
 				}
-				recverr = fmt.Errorf("bridge read from shim connection failed: %w", err)
-				logrus.Error(recverr)
-				break
-			}
-			var msgBase prot.RequestBase
-			_ = json.Unmarshal(msg, &msgBase)
-			ctx, span := getContextAndSpan(msgBase.OpenCensusSpanContext)
-			span.AddAttributes(
-				trace.Int64Attribute("message-id", int64(header.ID)),
-				trace.StringAttribute("message-type", header.Type.String()),
-				trace.StringAttribute("activityID", msgBase.ActivityID.String()),
-				trace.StringAttribute("containerID", msgBase.ContainerID))
 
-			req := request{
-				ctx:        ctx,
-				activityID: msgBase.ActivityID,
-				header:     header,
-				message:    msg,
+				var msgBase prot.RequestBase
+				_ = json.Unmarshal(msg, &msgBase)
+				reqCtx, span := getContextAndSpan(msgBase.OpenCensusSpanContext)
+				span.AddAttributes(
+					trace.Int64Attribute("message-id", int64(header.ID)),
+					trace.StringAttribute("message-type", header.Type.String()),
+					trace.StringAttribute("activityID", msgBase.ActivityID.String()),
+					trace.StringAttribute("containerID", msgBase.ContainerID))
+
+				req := request{
+					ctx:        reqCtx,
+					activityID: msgBase.ActivityID,
+					header:     header,
+					message:    msg,
+				}
+				if err := sendWithContextCancel(ctx, shimRequestChan, req); err != nil {
+					log.G(ctx).WithError(err).Error("failed to send request to shimRequestChan")
+					return
+				}
 			}
-			shimRequestChan <- req
 		}
-		sidecarErrChan <- recverr
 	}()
-	// Process each bridge request received from shim asynchronously.
+	//  Goroutine 2: Process each bridge request received from shim asynchronously.
+	wg.Add(1)
 	go func() {
-		for req := range shimRequestChan {
+		defer wg.Done()
+
+		for {
 			// Requests are served sequentially to avoid
 			// racing/reordering of incoming message order.
 			// This becomes important for confidential cases
 			// where the shim could be compromised and replay
 			// messages out of order.
-			if err := b.ServeMsg(&req); err != nil {
-				log.G(req.ctx).WithError(err).Errorf("failed to serve request: %v", req.header.Type.String())
-				// In case of error, create appropriate response message to
-				// be sent to hcsshim.
-				resp := &prot.ResponseBase{
-					Result:       int32(windows.ERROR_GEN_FAILURE),
-					ErrorMessage: err.Error(),
-					ActivityID:   req.activityID,
-				}
-				setErrorForResponseBase(resp, err, "gcs-sidecar" /* moduleName */)
-				err = b.sendResponseToShim(req.ctx, prot.RPCProc(prot.MsgTypeResponse), req.header.ID, resp)
-				log.G(req.ctx).WithError(err).Errorf("failed to send response to shim")
-			}
-		}
-	}()
-	go func() {
-		var err error
-		for req := range b.sendToGCSCh {
-			// Forward message to gcs
-			log.G(req.ctx).Tracef("bridge send to gcs, req %v, %v", req.header.Type.String(), string(req.message))
-			buffer, err := b.prepareResponseMessage(req.header, req.message)
-			if err != nil {
-				err = fmt.Errorf("error preparing response: %w", err)
-				logrus.Error(err)
-				break
-			}
-
-			_, err = buffer.WriteTo(b.inboxGCSConn)
-			if err != nil {
-				err = fmt.Errorf("err forwarding shim req to inbox GCS: %w", err)
-				logrus.Error(err)
-				break
-			}
-		}
-		sidecarErrChan <- err
-	}()
-	// Receive response from gcs and forward to hcsshim
-	go func() {
-		var recverr error
-		for {
-			header, message, err := readMessage(b.inboxGCSConn)
-			if err != nil {
-				if errors.Is(err, io.EOF) || isLocalDisconnectError(err) {
+			select {
+			case <-ctx.Done():
+				return
+			case req, ok := <-shimRequestChan:
+				if !ok {
 					return
 				}
-				recverr = fmt.Errorf("bridge read from gcs failed: %w", err)
-				logrus.Error(recverr)
-				break
+				if err := b.ServeMsg(&req); err != nil {
+					log.G(req.ctx).WithError(err).Errorf("failed to serve request: %v", req.header.Type.String())
+					// In case of error, create appropriate response message to
+					// be sent to hcsshim.
+					resp := &prot.ResponseBase{
+						Result:       int32(windows.ERROR_GEN_FAILURE),
+						ErrorMessage: err.Error(),
+						ActivityID:   req.activityID,
+					}
+					setErrorForResponseBase(resp, err, "gcs-sidecar" /* moduleName */)
+					// Prepares and sends message to hcsshim via b.sendToShimCh
+					responseErr := b.sendResponseToShim(req.ctx, prot.RPCProc(prot.MsgTypeResponse), req.header.ID, resp)
+					if responseErr != nil {
+						log.G(req.ctx).WithError(err).Errorf("failed to send response to shim")
+						_ = sendWithContextCancel(ctx, sidecarErrChan, responseErr)
+						return
+					}
+				}
 			}
-
-			// Forward to shim
-			resp := bridgeResponse{
-				ctx:      context.Background(),
-				header:   header,
-				response: message,
-			}
-			b.sendToShimCh <- resp
 		}
-		sidecarErrChan <- recverr
 	}()
-	// Send response to hcsshim
+	//  Goroutine 3: Forrward requests to inbox GCS
+	wg.Add(1)
 	go func() {
-		var sendErr error
-		for resp := range b.sendToShimCh {
-			// Send response to shim
-			logrus.Tracef("Send response to shim. Header:{ID: %v, Type: %v, Size: %v} msg: %v", resp.header.ID,
-				resp.header.Type, resp.header.Size, string(resp.response))
-			buffer, err := b.prepareResponseMessage(resp.header, resp.response)
-			if err != nil {
-				sendErr = fmt.Errorf("error preparing response: %w", err)
-				logrus.Error(sendErr)
-				break
-			}
-			_, sendErr = buffer.WriteTo(b.shimConn)
-			if sendErr != nil {
-				sendErr = fmt.Errorf("err sending response to shim: %w", sendErr)
-				logrus.Error(sendErr)
-				break
+		defer wg.Done()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case req, ok := <-b.sendToGCSCh:
+				if !ok {
+					return
+				}
+
+				// Forward message to gcs
+				log.G(req.ctx).Tracef("bridge send to gcs, req %v, %v", req.header.Type.String(), string(req.message))
+				buffer, err := b.prepareResponseMessage(req.header, req.message)
+				if err != nil {
+					responseErr := fmt.Errorf("error preparing response: %w", err)
+					_ = sendWithContextCancel(ctx, sidecarErrChan, responseErr)
+					return
+				}
+
+				_, err = buffer.WriteTo(b.inboxGCSConn)
+				if err != nil {
+					responseErr := fmt.Errorf("err forwarding shim req to inbox GCS: %w", err)
+					_ = sendWithContextCancel(ctx, sidecarErrChan, responseErr)
+					return
+				}
 			}
 		}
-		sidecarErrChan <- sendErr
+	}()
+	// Goroutine 4: Receive response from gcs and forward to hcsshim
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				header, message, err := readMessage(b.inboxGCSConn)
+				if err != nil {
+					var recverr error
+					if errors.Is(err, io.EOF) || isLocalDisconnectError(err) {
+						// hcsshim handles these errors explicitly. Therefore,
+						// returning the exact same error.
+						recverr = err
+					} else {
+						recverr = fmt.Errorf("bridge read from gcs failed: %w", err)
+					}
+					logrus.Error(recverr)
+					_ = sendWithContextCancel(ctx, sidecarErrChan, recverr)
+					return
+				}
+
+				// Forward to shim
+				resp := bridgeResponse{
+					ctx:      context.Background(),
+					header:   header,
+					response: message,
+				}
+				if err := sendWithContextCancel(ctx, b.sendToShimCh, resp); err != nil {
+					log.G(ctx).WithError(err).Error("failed to send request to b.sendToShimCh")
+					return
+				}
+			}
+		}
+	}()
+	// Goroutine 5: Send response to hcsshim
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case resp, ok := <-b.sendToShimCh:
+				if !ok {
+					return
+				}
+
+				// Send response to shim
+				logrus.Tracef("Send response to shim. Header:{ID: %v, Type: %v, Size: %v} msg: %v", resp.header.ID,
+					resp.header.Type, resp.header.Size, string(resp.response))
+				buffer, err := b.prepareResponseMessage(resp.header, resp.response)
+				if err != nil {
+					responseErr := fmt.Errorf("error preparing response: %w", err)
+					_ = sendWithContextCancel(ctx, sidecarErrChan, responseErr)
+					return
+				}
+				_, sendErr := buffer.WriteTo(b.shimConn)
+				if sendErr != nil {
+					responseErr := fmt.Errorf("err sending response to shim: %w", sendErr)
+					_ = sendWithContextCancel(ctx, sidecarErrChan, responseErr)
+					return
+				}
+			}
+		}
 	}()
 
-	err := <-sidecarErrChan
-	return err
+	var finalErr error
+	select {
+	case finalErr = <-sidecarErrChan:
+		cancel()
+	case <-ctx.Done():
+		finalErr = ctx.Err()
+		cancel()
+	}
+
+	// Close read b.ShimConn and b.inboxGCSConn
+	_ = b.shimConn.Close()
+	_ = b.inboxGCSConn.Close()
+
+	// Close sidecarErrChan after all the goroutines have finished
+	// sending to it.
+	wg.Wait()
+	close(sidecarErrChan)
+
+	return finalErr
 }
 
 // Prepare response message
